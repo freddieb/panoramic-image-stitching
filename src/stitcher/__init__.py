@@ -85,6 +85,8 @@ def stitch(imgs):
 
 
 if __name__ == '__main__':
+  OUT_TARGET_WIDTH = 1200
+
   parser = argparse.ArgumentParser()
   parser.add_argument("dir", help="input directory for individual images")
   args = parser.parse_args()
@@ -93,5 +95,9 @@ if __name__ == '__main__':
 
   result = stitch(imgs)
 
-  cv.imshow("Result", result)
+  # Resize output to make result easier to view
+  target_height = int(round(OUT_TARGET_WIDTH * result.shape[0] / result.shape[1]))
+  resized_result = cv.resize(result, (OUT_TARGET_WIDTH, target_height), interpolation=cv.INTER_LANCZOS4)
+
+  cv.imshow("Result", resized_result)
   cv.waitKey(0)
