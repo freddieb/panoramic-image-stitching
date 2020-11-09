@@ -1,7 +1,8 @@
-# from PIL import Image
 import numpy as np
-from matplotlib import pyplot as plt
 import cv2 as cv
+import os
+import argparse
+
 
 # https://stackoverflow.com/a/20355545
 def warpTwoImages(img1, img2, H):
@@ -21,93 +22,76 @@ def warpTwoImages(img1, img2, H):
   result[t[1]:h1+t[1],t[0]:w1+t[0]] = img1
   return result
 
-def main():
-  print("Call app code here...")
 
-  MIN_MATCH_COUNT = 10
-
-  im1path = path = "/home/fred/Documents/Uni/COMP3200_Part3Project/panoramic_image_stitching/data/imgs/01_suburbA.jpg"
-  im2path = path = "/home/fred/Documents/Uni/COMP3200_Part3Project/panoramic_image_stitching/data/imgs/01_suburbB.jpg"
-  im1 = cv.imread(im1path)
-  im2 = cv.imread(im2path)
-
-  im1 = cv.cvtColor(im1, cv.COLOR_BGR2GRAY)
-  im2 = cv.cvtColor(im2, cv.COLOR_BGR2GRAY)
+# Finds all SIFT keypoint matches below a threshold distance
+def findGoodMatches(img1, img2):
+  img1 = cv.cvtColor(img1, cv.COLOR_BGR2GRAY)
+  img2 = cv.cvtColor(img2, cv.COLOR_BGR2GRAY)
 
   sift = cv.SIFT_create()
 
-  kp1, des1 = sift.detectAndCompute(im1, None)
-  kp2, des2 = sift.detectAndCompute(im2, None)
+  kp1, des1 = sift.detectAndCompute(img1, None)
+  kp2, des2 = sift.detectAndCompute(img2, None)
 
   FLANN_INDEX_KDTREE = 0
   index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
   search_params = dict(checks = 50)
 
   flann = cv.FlannBasedMatcher(index_params, search_params)
-
   matches = flann.knnMatch(des1, des2, k=2)
 
   good = []
   for m,n in matches:
-    if m.distance < 0.7*n.distance:
+    if m.distance < 0.7 * n.distance:
       good.append(m)
+  
+  return good, kp1, kp2
 
 
-  if len(good) > MIN_MATCH_COUNT:
-    dst_pts = np.float32([ kp1[m.queryIdx].pt for m in good ]).reshape(-1,1,2)
-    src_pts = np.float32([ kp2[m.trainIdx].pt for m in good ]).reshape(-1,1,2)
+def load_images_from_dir(dir):
+  images = []
+  for filename in sorted(os.listdir(dir)):
+    img = cv.imread(os.path.join(dir, filename))
+    if img is not None:
+      images.append(img)
+  return images
 
-    M, mask = cv.findHomography(src_pts, dst_pts, cv.RANSAC, 5.0)
-    matchesMask = mask.ravel().tolist()
+def stitch(imgs):
+  MIN_MATCH_COUNT = 10
 
-    # h,w = im1.shape
-    # pts = np.float32([ [0,0],[0,h-1],[w-1,h-1],[w-1,0] ]).reshape(-1,1,2)
-    # dst = cv.perspectiveTransform(pts,M)
+  if (len(imgs) < 0):
+    print('No images in given directory. Exiting.')
+    return None
 
-    # im2 = cv.polylines(im2,[np.int32(dst)],True,255,3, cv.LINE_AA)
+  result = imgs.pop()
 
-  else:
-    print(f'Not enough matches are found - {len(good)}/{MIN_MATCH_COUNT}')
-    matchesMask = None
+  while (len(imgs) > 0):
+    currImg = imgs.pop()
 
-  # draw_params = dict(matchColor = (0,255,0), # draw matches in green color
-  #                    singlePointColor = None,
-  #                    matchesMask = matchesMask, # draw only inliers
-  #                    flags = 2)
+    good, kp1, kp2 = findGoodMatches(result, currImg)
 
-  # img3 = cv.drawMatches(im1,kp1,im2,kp2,good,None,**draw_params)  
+    if len(good) > MIN_MATCH_COUNT:
+      dst_pts = np.float32([ kp1[m.queryIdx].pt for m in good ]).reshape(-1,1,2)
+      src_pts = np.float32([ kp2[m.trainIdx].pt for m in good ]).reshape(-1,1,2)
 
-  # print(f'im2 shape {im1.shape}')
-  # print(f'im1 shape {im2.shape}')
-  # print(f'input warp shape {(im1.shape[1] + im2.shape[1], im1.shape[0])}')
+      M, _ = cv.findHomography(src_pts, dst_pts, cv.RANSAC, 5.0)
 
-  # print(f'M: {M}')
+    else:
+      print(f'Not enough good matches have been found - {len(good)}/{MIN_MATCH_COUNT}')
 
-  # # output shape needs to be changed based on size of both images v
-  # result = cv.warpPerspective(im1, M, (im1.shape[1] + im2.shape[1], im2.shape[0]))
-  # print(f'result shape {result.shape}')
+    result = warpTwoImages(result, currImg, M)
 
-  # cv.imshow("img before", result)
+  return result
 
-  # result[0:im2.shape[0], 0:im2.shape[1]] = im2
 
-  print(M)
-  result = warpTwoImages(im1, im2, M)
+if __name__ == '__main__':
+  parser = argparse.ArgumentParser()
+  parser.add_argument("dir", help="input directory for individual images")
+  args = parser.parse_args()
 
-  cv.imshow("img after", result)
+  imgs = load_images_from_dir(args.dir)
+
+  result = stitch(imgs)
+
+  cv.imshow("Result", result)
   cv.waitKey(0)
-
-main()
-
-
-
-
-
-
-
-
-# dst_pts = float32([kp1[m.queryIdx].pt for m in good]).reshape(-1,1,2)
-# src_pts = float32([kp2[m.trainIdx].pt for m in good]).reshape(-1,1,2)
-# M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-
-# result = warpTwoImages(img1_color, img2_color, M)
