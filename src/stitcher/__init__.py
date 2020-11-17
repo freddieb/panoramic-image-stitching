@@ -9,21 +9,26 @@ def warp_two_images(img1, img2, H):
   '''warp img2 to img1 with homograph H'''
   h1,w1 = img1.shape[:2]
   h2,w2 = img2.shape[:2]
+
   pts1 = np.float32([[0,0],[0,h1],[w1,h1],[w1,0]]).reshape(-1,1,2)
   pts2 = np.float32([[0,0],[0,h2],[w2,h2],[w2,0]]).reshape(-1,1,2)
+
   pts2_ = cv.perspectiveTransform(pts2, H)
   pts = np.concatenate((pts1, pts2_), axis=0)
-  [x_min, y_min] = np.int32(pts.min(axis=0).ravel() - 0.5)
-  [x_max, y_max] = np.int32(pts.max(axis=0).ravel() + 0.5)
+
+  [x_min, y_min] = np.int32(pts.min(axis=0).ravel())
+  [x_max, y_max] = np.int32(pts.max(axis=0).ravel())
+
   t = [-x_min,-y_min]
-  Ht = np.array([[1,0,t[0]],[0,1,t[1]],[0,0,1]]) # translate
+  Ht = np.array([[1,0,t[0]],[0,1,t[1]],[0,0,1]]) # translate by t
 
   result = cv.warpPerspective(img2, Ht.dot(H), (x_max-x_min, y_max-y_min))
   result[t[1]:h1+t[1],t[0]:w1+t[0]] = img1
+
   return result
 
 
-# Finds all SIFT keypoint matches below a threshold distance
+# Finds all SIFT keypoint matches 
 def find_good_matches(img1, img2):
   img1 = cv.cvtColor(img1, cv.COLOR_BGR2GRAY)
   img2 = cv.cvtColor(img2, cv.COLOR_BGR2GRAY)
@@ -74,12 +79,12 @@ def stitch(imgs):
       dst_pts = np.float32([ kp1[m.queryIdx].pt for m in good ]).reshape(-1,1,2)
       src_pts = np.float32([ kp2[m.trainIdx].pt for m in good ]).reshape(-1,1,2)
 
-      M, _ = cv.findHomography(src_pts, dst_pts, cv.RANSAC, 5.0)
+      M, _ = cv.findHomography(dst_pts, src_pts, cv.RANSAC, 5.0)
 
     else:
       print(f'Not enough good matches have been found - {len(good)}/{MIN_MATCH_COUNT}')
 
-    result = warp_two_images(result, currImg, M)
+    result = warp_two_images(currImg, result, M)
 
   return result
 
