@@ -13,8 +13,8 @@ def normalize_points(pts):
 
   [x_mean, y_mean] = np.mean(pts, axis=0)
   
-  # Sum of distances between points and the origin
-  total_dist = np.sum(np.hypot([pt[0] for pt in pts], [pt[1] for pt in pts]))
+  # Sum of distances between points and the mean
+  total_dist = np.sum(((pt[0] - x_mean)**2 + (pt[1] - y_mean)**2)**0.5 for pt in pts)
   
   avg_dist = total_dist / len(pts)
 
@@ -28,12 +28,12 @@ def normalize_points(pts):
   ones = np.ones((1, pts.shape[0]))
   padded_pts = np.concatenate((pts.T, ones))
   
-  # Apply the transform to the points so that they are normalised
+  # Apply the transform to the points 
   transformed = projective_transform @ padded_pts
 
   # Get x and y coordinates, and transpose to be in original form
   pts_2d = transformed[0:2].T
-  
+    
   return pts_2d, projective_transform
 
 
@@ -56,13 +56,11 @@ def compute_matrix_A(pts1, pts2):
     A.append([x, y, 1, 0, 0, 0, -x_prime * x, -x_prime * y, -x_prime])
   
   return np.asarray(A)
-
-
   
 
 def direct_linear_transform(pts1, pts2):
   """
-  Compute the homography matrix that transforms pts1 to pts2
+  Compute the homography matrix that transforms pts1 onto the plane of pts2
   via the direct linear transform (DLT) method. This includes a
   normalisation step, as described in Section 4.4 of:
   
@@ -81,13 +79,13 @@ def direct_linear_transform(pts1, pts2):
   # Compute the singluar value decomposition of A
   _, _, V = np.linalg.svd(A)
   
-  # Get the last col of V
-  h = V[:, -1]
+  # Get the last col of V and normalise by last value
+  h = V[-1, :] / V[-1, -1]
 
   # Reshape to 3x3 homography matrix
   H_normalized = h.reshape(3, 3)
 
   # Denormalize the homography matrix
-  H = pts2_T @ (H_normalized @ pts1_T)
+  H = np.linalg.inv(pts2_T) @ H_normalized @ pts1_T
 
   return H

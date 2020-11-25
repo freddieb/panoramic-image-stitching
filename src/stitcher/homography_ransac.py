@@ -19,14 +19,13 @@ def transfer_error(pt1, pt2, H):
   pt1 = np.append(pt1, [1])
   pt2 = np.append(pt2, [1])
 
-  pt2_projected = ((H @ pt2).T).T 
+  pt1_projected = ((H @ pt1).T).T 
 
-  diff = (pt1 - pt2_projected)
+  diff = (pt2 - pt1_projected)
 
   sse = np.sum(diff**2)
 
   return sse
-
 
 
 def homography_ransac(pts1, pts2, threshold, n_iterations):
@@ -38,7 +37,7 @@ def homography_ransac(pts1, pts2, threshold, n_iterations):
     pts1 - Destination plane
     pts2 - Points to transform onto destination plane#
 
-  Output: Homography projecting pts2 onto pts1 plane
+  Output: Tuple of (Homography projecting pts2 onto pts1 plane, number of RANSAC inliers)
   """
 
   # Store maxInliners are points, if there is a tie in max, 
@@ -49,7 +48,6 @@ def homography_ransac(pts1, pts2, threshold, n_iterations):
   for i in range(n_iterations):
     # 4 random point indexes
     random_pts_idxs = np.random.choice(len(pts1), 4)
-    print(random_pts_idxs)
 
     # Get random sample using random indexes
     pts1_sample = pts1[random_pts_idxs]
@@ -57,6 +55,7 @@ def homography_ransac(pts1, pts2, threshold, n_iterations):
 
     # Compute H using DLT
     H = direct_linear_transform(pts1_sample, pts2_sample)
+    # print(f'H:\n{H}')
 
     inliers = []
 
@@ -65,14 +64,14 @@ def homography_ransac(pts1, pts2, threshold, n_iterations):
       # Get distance for each correspondance
       distance = transfer_error(pts1[i], pts2[i], H)
 
-      # Add correspondence to inliners if distance < ???
+      # Add correspondence to inliners if distance less than threshold
       if (distance < threshold):
         inliers.append([pts1[i], pts2[i]])
 
     # If inliers > maxInliers, set as new best H
-    if (len(inliers) > maxInliers):
+    if (len(inliers) > len(maxInliers)):
       maxInliers = inliers
       bestH = H
       # TODO: else if inliers == maxInliers, pick best H based on smallest standard deviation
     
-  return bestH
+  return bestH, len(maxInliers)

@@ -2,6 +2,28 @@ import numpy as np
 import cv2 as cv
 import os
 import argparse
+import random
+
+from homography_ransac import homography_ransac
+
+class Color:
+  PURPLE = '\033[95m'
+  CYAN = '\033[96m'
+  DARKCYAN = '\033[36m'
+  BLUE = '\033[94m'
+  GREEN = '\033[92m'
+  YELLOW = '\033[93m'
+  RED = '\033[91m'
+  BOLD = '\033[1m'
+  UNDERLINE = '\033[4m'
+  END = '\033[0m'
+
+
+def skip_diag_strided(A):
+    m = A.shape[0]
+    strided = np.lib.stride_tricks.as_strided
+    s0,s1 = A.strides
+    return strided(A.ravel()[1:], shape=(m-1,m), strides=(s0+s1,s1)).reshape(m,-1)
 
 
 # https://stackoverflow.com/a/20355545
@@ -38,6 +60,7 @@ def find_good_matches(img1, img2):
   kp1, des1 = sift.detectAndCompute(img1, None)
   kp2, des2 = sift.detectAndCompute(img2, None)
 
+  # Compute putative correspondences
   FLANN_INDEX_KDTREE = 0
   index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
   search_params = dict(checks = 50)
@@ -61,7 +84,158 @@ def load_images_from_dir(dir):
       imgs.append(img)
   return imgs
 
-def stitch(imgs):
+def find_matches(imgs):
+  # Shuffle images
+  # random.shuffle(imgs)
+
+  # Initialise SIFT
+  sift = cv.SIFT_create()
+
+  # Initialise approx KD tree
+  FLANN_INDEX_KDTREE = 0
+  index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
+  search_params = dict(checks = 50)
+  flann = cv.FlannBasedMatcher(index_params, search_params)
+
+  # Find good matches
+  all_keypoints = []
+  all_descriptors = []
+
+  for img in imgs:
+    keypoints, descriptors = sift.detectAndCompute(img, None)
+    all_keypoints.append(keypoints)
+    all_descriptors.append(descriptors)
+
+  # Find matches for the descriptors of one image
+  paired = []
+  potential_pairs_matches = []
+  for i in range(0, len(imgs)):
+    flann.clear()
+
+    train_descriptors = [x for j,x in enumerate(all_descriptors) if j != i]
+    query_descriptors = all_descriptors[i]
+
+    # print(f'kps len {len(all_keypoints[i])}, descs len {len(query_descriptors)}')
+
+    flann.add(train_descriptors)
+    flann.train() # might be included in the knnMatch method, so may be able to remove...
+    matches = flann.knnMatch(query_descriptors, k=4)
+
+    # print(f'len(matches): {len(matches)}')
+    # print(f'len(query_descriptors): {len(query_descriptors)}')
+    
+    potential_pairs = np.empty((len(imgs), len(query_descriptors)), dtype=int)
+    potential_pairs.fill(-1)
+
+    for (j, nearest_neighbours) in enumerate(matches):
+      # potential_pairs[[n.imgIdx if n.imgIdx < i else n.imgIdx + 1 for n in nearest_neighbours]] += 1
+      # Reverse so that closest overrides further points
+      for n in reversed(nearest_neighbours):
+        query_img_index = n.imgIdx if n.imgIdx < i else n.imgIdx + 1
+        potential_pairs[query_img_index][j] = n.trainIdx
+        
+
+    # Take 6 best matching pairs' indexes
+    potential_pairs_positive_count = np.sum(np.array(potential_pairs) >= 0, axis=1) #np.count_nonzero(~np.isnan(potential_pairs), axis=1)
+    # print(f'potential_pairs_nonzero_count: {potential_pairs_nonzero_count}')
+    pairs = np.argsort(potential_pairs_positive_count)[::-1][:6]
+    # print(f'pairs: {pairs}')
+    paired.append(pairs.tolist()) 
+    potential_pairs_matches.append(potential_pairs)
+
+  print(f'Paired: {paired}')
+  print('Found potential pairs, will now begin RANSAC')
+
+  confirmed_matches = []
+
+  for (query_img_index, img_pair_indexes) in enumerate(paired):
+    for pair_index in img_pair_indexes:
+
+      if ((pair_index, query_img_index) in confirmed_matches):
+        continue
+
+      # print(f'Comparing {query_img_index} and {pair_index}')
+      if query_img_index == pair_index:
+        continue
+
+      # print()
+
+      # print(potential_pairs_matches[query_img_index][pair_index])
+
+      # print(f'np.array(all_keypoints[query_img_index]) shape: {np.shape(np.array(all_keypoints[query_img_index]))}')
+      # print(f'potential_pairs_matches[query_img_index][pair_index] shape: {np.shape(potential_pairs_matches[query_img_index][pair_index])}')
+      # print(f'np.where(potential_pairs_matches[query_img_index][pair_index] != -1) shape: {np.shape(np.where(potential_pairs_matches[query_img_index][pair_index] != -1)[0])}')
+
+      # try:
+        
+      # except:
+      #   print(f'np.where(potential_pairs_matches[query_img_index][pair_index] != -1)[0]: {np.where(potential_pairs_matches[query_img_index][pair_index] != -1)[0]}')
+      #   raise Exception('error', 'with query_keypoints where take thing')
+
+      query_keypoints = np.take(np.array(all_keypoints[query_img_index]), np.where(potential_pairs_matches[query_img_index][pair_index] != -1)[0]).tolist()
+      target_keypoints = np.take(np.array(all_keypoints[pair_index]), potential_pairs_matches[query_img_index][pair_index][potential_pairs_matches[query_img_index][pair_index] != -1]).tolist()
+
+      if (np.shape(query_keypoints)[0] <= 5):
+        continue
+
+      # print(f'query_keypoints: {query_keypoints}')
+
+      # print(f'query_keypoints shape: {np.shape(query_keypoints)}')
+      # print(f'target_keypoints shape: {np.shape(target_keypoints)}')
+
+      kps1 = np.float32([ keypoint.pt for keypoint in query_keypoints ]).reshape(-1,2)
+      kps2 = np.float32([ keypoint.pt for keypoint in target_keypoints ]).reshape(-1,2)
+
+      # print(f'kps1 shape: {np.shape(kps1)}')
+      # print(f'kps2 shape: {np.shape(kps2)}')
+
+      if (np.shape(kps1)[0] < 5):
+        continue
+
+      H, inliers = homography_ransac(kps1, kps2, 4, 400)
+
+      # The metric from the paper 'Automatic Image Stitching Using Invariant Features' does not work..
+      # print(f'{query_img_index} == {pair_index} || score: {inliers / (8 + 0.3 * len(query_keypoints))} || inliers: {inliers} kps: {len(query_keypoints)}')
+      # if (inliers > 8 + 0.3 * len(query_keypoints)):
+      #   print(f'{Color.BOLD}Match {query_img_index} {pair_index}{Color.END}')
+
+      if (inliers > 20 and inliers > 0.018 * len(query_keypoints)):
+        confirmed_matches.append((query_img_index, pair_index))
+        print(f'{Color.BOLD}Match {query_img_index} {pair_index}{Color.END}')
+
+  print('Done.')
+
+
+def simple_stitch(imgs):
+  MIN_MATCH_COUNT = 10
+
+  if (len(imgs) < 0):
+    print('No images in given directory. Exiting.')
+    return None
+
+  result = imgs.pop()
+
+  while (len(imgs) > 0):
+    currImg = imgs.pop()
+
+    good, kp1, kp2 = find_good_matches(result, currImg)
+
+    if len(good) > MIN_MATCH_COUNT:
+      dst_pts = np.float32([ kp1[m.queryIdx].pt for m in good ]).reshape(-1,2)
+      src_pts = np.float32([ kp2[m.trainIdx].pt for m in good ]).reshape(-1,2)
+
+      H, inliers = homography_ransac(dst_pts, src_pts, 4, 500)
+      print(f'inliers: {inliers}')
+
+    else:
+      print(f'Not enough good matches have been found - {len(good)}/{MIN_MATCH_COUNT}')
+
+    result = warp_two_images(currImg, result, H)
+
+  return result
+
+
+def simple_stitch_opencv(imgs):
   MIN_MATCH_COUNT = 10
 
   if (len(imgs) < 0):
@@ -98,11 +272,13 @@ if __name__ == '__main__':
 
   imgs = load_images_from_dir(args.dir)
 
-  result = stitch(imgs)
+  find_matches(imgs)
 
-  # Resize output to make result easier to view
-  target_height = int(round(OUT_TARGET_WIDTH * result.shape[0] / result.shape[1]))
-  resized_result = cv.resize(result, (OUT_TARGET_WIDTH, target_height), interpolation=cv.INTER_LANCZOS4)
+  # result = simple_stitch(imgs)
 
-  cv.imshow("Result", resized_result)
-  cv.waitKey(0)
+  # # Resize output to make result easier to view
+  # target_height = int(round(OUT_TARGET_WIDTH * result.shape[0] / result.shape[1]))
+  # resized_result = cv.resize(result, (OUT_TARGET_WIDTH, target_height), interpolation=cv.INTER_LANCZOS4)
+
+  # cv.imshow("Result", resized_result)
+  # cv.waitKey(0)
