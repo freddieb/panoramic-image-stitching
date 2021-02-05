@@ -37,7 +37,7 @@ def homography_ransac(pts1, pts2, threshold, n_iterations):
     pts1 - Destination plane
     pts2 - Points to transform onto destination plane#
 
-  Output: Tuple of (Homography projecting pts2 onto pts1 plane, number of RANSAC inliers)
+  Output: Tuple of (Homography projecting pts2 onto pts1 plane, RANSAC inlier kps)
   """
 
   # Store maxInliners are points, if there is a tie in max, 
@@ -74,4 +74,4 @@ def homography_ransac(pts1, pts2, threshold, n_iterations):
       bestH = H
       # TODO: else if inliers == maxInliers, pick best H based on smallest standard deviation
     
-  return bestH, len(maxInliers)
+  return bestH, maxInliers
