@@ -10,7 +10,7 @@ Using Python 3, install:
 
 ## Run
 ```
-python3 ./src/stitcher/__init__.py <path_to_input_images_directory>
+python3 ./src/stitcher/main.py <path_to_input_images_directory>
 ```
 
 ## Method Overview

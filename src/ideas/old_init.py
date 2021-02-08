@@ -8,6 +8,9 @@ import math
 import copyreg
 
 from camera_estimator import CameraEstimator
+from homography_ransac import homography_ransac
+from matcher import Matcher
+from image import Image
 
 ######## Fixes cv.KeyPoint pickle error ##################################
 def _pickle_keypoints(point):
@@ -16,23 +19,6 @@ def _pickle_keypoints(point):
 
 copyreg.pickle(cv.KeyPoint().__class__, _pickle_keypoints)
 ##########################################################################
-
-from homography_ransac import homography_ransac
-from matcher import Matcher
-from image import Image
-
-
-class Color:
-  PURPLE = '\033[95m'
-  CYAN = '\033[96m'
-  DARKCYAN = '\033[36m'
-  BLUE = '\033[94m'
-  GREEN = '\033[92m'
-  YELLOW = '\033[93m'
-  RED = '\033[91m'
-  BOLD = '\033[1m'
-  UNDERLINE = '\033[4m'
-  END = '\033[0m'
 
 
 def skip_diag_strided(A):
