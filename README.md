@@ -1,6 +1,6 @@
 # Panoramic Image Stitching
 
-Panoramic image stitcher based on ['Automatic Panoramic Image Stitching using Invariant Feature'](http://matthewalunbrown.com/papers/ijcv2007.pdf) by Matthew Brown and David Lowe.
+Panoramic image stitcher based on ['Automatic Panoramic Image Stitching using Invariant Features'](http://matthewalunbrown.com/papers/ijcv2007.pdf) by Matthew Brown and David Lowe.
 
 ## Installation
 Using Python 3, install:
