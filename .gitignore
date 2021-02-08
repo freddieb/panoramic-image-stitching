@@ -181,3 +181,10 @@ dmypy.json
 
 # profiling data
 .prof
+
+
+## Extra added by freddieb
+
+# Pickled objects
+*.p 
+/data

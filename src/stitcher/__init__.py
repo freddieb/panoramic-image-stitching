@@ -5,8 +5,22 @@ import argparse
 import pickle
 import random
 import math
+import copyreg
+
+from camera_estimator import CameraEstimator
+
+######## Fixes cv.KeyPoint pickle error ##################################
+def _pickle_keypoints(point):
+    return cv.KeyPoint, (*point.pt, point.size, point.angle,
+                          point.response, point.octave, point.class_id)
+
+copyreg.pickle(cv.KeyPoint().__class__, _pickle_keypoints)
+##########################################################################
 
 from homography_ransac import homography_ransac
+from matcher import Matcher
+from image import Image
+
 
 class Color:
   PURPLE = '\033[95m'
@@ -53,7 +67,7 @@ def warp_two_images(img1, img2, H):
 
 
 # Finds all SIFT keypoint matches 
-def find_good_matches(img1, img2):
+def find_sift_matches(img1, img2):
   img1 = cv.cvtColor(img1, cv.COLOR_BGR2GRAY)
   img2 = cv.cvtColor(img2, cv.COLOR_BGR2GRAY)
 
@@ -84,6 +98,14 @@ def load_images_from_dir(dir):
     img = cv.imread(os.path.join(dir, filename))
     if img is not None:
       imgs.append(img)
+  return imgs
+
+def load_images_from_dir_2(dir):
+  imgs = []
+  for filename in sorted(os.listdir(dir)):
+    img = cv.imread(os.path.join(dir, filename))
+    if img is not None:
+      imgs.append(Image(img, filename))
   return imgs
 
 def find_matches(imgs):
@@ -370,7 +392,7 @@ def simple_stitch(imgs):
   while (len(imgs) > 0):
     currImg = imgs.pop()
 
-    good, kp1, kp2 = find_good_matches(result, currImg)
+    good, kp1, kp2 = find_sift_matches(result, currImg)
 
     if len(good) > MIN_MATCH_COUNT:
       dst_pts = np.float32([ kp1[m.queryIdx].pt for m in good ]).reshape(-1,2)
@@ -399,7 +421,7 @@ def simple_stitch_opencv(imgs):
   while (len(imgs) > 0):
     currImg = imgs.pop()
 
-    good, kp1, kp2 = find_good_matches(result, currImg)
+    good, kp1, kp2 = find_sift_matches(result, currImg)
 
     if len(good) > MIN_MATCH_COUNT:
       dst_pts = np.float32([ kp1[m.queryIdx].pt for m in good ]).reshape(-1,1,2)
@@ -415,16 +437,16 @@ def simple_stitch_opencv(imgs):
   return result
 
 
-if __name__ == '__main__':
-  OUT_TARGET_WIDTH = 1200
+# if __name__ == '__main__':
+#   OUT_TARGET_WIDTH = 1200
 
-  parser = argparse.ArgumentParser()
-  parser.add_argument("dir", help="input directory for individual images")
-  args = parser.parse_args()
+#   parser = argparse.ArgumentParser()
+#   parser.add_argument("dir", help="input directory for individual images")
+#   args = parser.parse_args()
 
-  imgs = load_images_from_dir(args.dir)
+#   imgs = load_images_from_dir(args.dir)
 
-  find_matches(imgs)
+#   find_matches(imgs)
 
   # result = simple_stitch(imgs)
 
@@ -434,3 +456,23 @@ if __name__ == '__main__':
 
   # cv.imshow("Result", resized_result)
   # cv.waitKey(0)
+
+
+if __name__ == '__main__':
+  parser = argparse.ArgumentParser()
+  parser.add_argument("dir", help="input directory for individual images")
+  args = parser.parse_args()
+
+  imgs = load_images_from_dir_2(args.dir)
+
+  matcher = Matcher(imgs)
+  matcher.pairwise_match()
+
+  # Visually verify matches have found appropriate homographies
+  # for match in matcher.matches:
+  #   result = warp_two_images(match.cam_to.image.image, match.cam_from.image.image, match.H)
+  #   cv.imshow('Result', result)
+  #   cv.waitKey(0)
+
+  camera_estimator = CameraEstimator(matcher.matches)
+  camera_estimator.estimate()

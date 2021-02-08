@@ -55,7 +55,6 @@ def homography_ransac(pts1, pts2, threshold, n_iterations):
 
     # Compute H using DLT
     H = direct_linear_transform(pts1_sample, pts2_sample)
-    # print(f'H:\n{H}')
 
     inliers = []
 
