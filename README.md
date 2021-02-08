@@ -5,6 +5,8 @@ Using Python 3, install:
 - numpy
 - cv2
 - argparse
+- scipy
+- ordered_set
 
 ## Run
 ```
