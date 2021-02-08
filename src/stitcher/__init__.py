@@ -44,7 +44,7 @@ def skip_diag_strided(A):
 
 # https://stackoverflow.com/a/20355545
 def warp_two_images(img1, img2, H):
-  '''warp img2 to img1 with homograph H'''
+  '''warp img2 to img1 with homography H'''
   h1,w1 = img1.shape[:2]
   h2,w2 = img2.shape[:2]
 

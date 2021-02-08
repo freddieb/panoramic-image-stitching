@@ -7,6 +7,11 @@ from state import State
 from constants import PARAMS_PER_CAMERA, PARAMS_PER_POINT_MATCH, REGULARISATION_PARAM, MAX_ITR
 
 class BundleAdjuster:
+  '''
+  Bundle Adjustment class that takes in matches (with initial estimates for 
+  rotation and focal length of each camera) and minimises the reprojection
+  error for all matches' keypoints.
+  '''
 
   # w.r.t. K
   FOCAL_DERIVATIVE = np.array([
@@ -37,6 +42,9 @@ class BundleAdjuster:
 
 
   def add(self, match):
+    '''
+    Add a match to the bundle adjuster
+    '''
     num_pointwise_matches = sum(len(match.inliers) for match in self._matches)
     self._match_count.append(num_pointwise_matches)
 
@@ -47,6 +55,9 @@ class BundleAdjuster:
 
 
   def run(self):
+    '''
+    Run the bundle adjuster on the current matches to find optimal camera parameters
+    '''
     if (len(self._matches) < 1):
       raise ValueError('At least one match must be added before bundle adjustment is run')
 
@@ -295,7 +306,7 @@ class BundleAdjuster:
 
 
   def _get_next_update(self, J, JtJ, residuals):
-    # Regularisation (TODO: Vary on each update)
+    # Regularisation
     l = random.normalvariate(1, 0.1)
     for i in range(len(self._cameras) * PARAMS_PER_CAMERA):
       if (i % PARAMS_PER_CAMERA >= 3):
