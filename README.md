@@ -28,3 +28,11 @@ python3 ./src/stitcher/main.py <path_to_input_images_directory>
 
 ## Datasets
 - The Adobe Panoramas Dataset has been used for testing: https://sourceforge.net/adobe/adobedatasets/panoramas/home/Home/
+
+
+
+# Doing
+
+- Refactored a lot of exisiting code (more oop)
+- Finished focal and rotation estimation 
+- Setup bundle adjuster with symbolic differentiation to build the jacobian for Levenberg-Marquardt optimisation

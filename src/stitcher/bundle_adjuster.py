@@ -94,6 +94,14 @@ class BundleAdjuster:
       
       if (non_decrease_count > 5):
         break
+
+    # Update actual camera object params
+    new_cameras = curr_state.cameras
+    for i in range(len(new_cameras)):
+      self._cameras[i].focal = new_cameras[i].focal
+      self._cameras[i].ppx = new_cameras[i].ppx
+      self._cameras[i].ppy = new_cameras[i].ppy
+      self._cameras[i].R = new_cameras[i].R
       
 
   def _cross_product_matrix(self, x, y, z):
@@ -310,9 +318,9 @@ class BundleAdjuster:
     l = random.normalvariate(1, 0.1)
     for i in range(len(self._cameras) * PARAMS_PER_CAMERA):
       if (i % PARAMS_PER_CAMERA >= 3):
-        JtJ[i][i] += (3.14/16)**2 * l
+        JtJ[i][i] += REGULARISATION_PARAM #(3.14/16)**2 * l
       else:
-        JtJ[i][i] += (1000 / 10)**2 * l
+        JtJ[i][i] += REGULARISATION_PARAM / 10#(1000 / 10)**2 * l
 
     # print(f'J.T shape: {J.T.shape}')
     # print(f'residuals: {residuals}')

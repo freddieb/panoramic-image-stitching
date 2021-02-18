@@ -6,7 +6,7 @@ from constants import PARAMS_PER_CAMERA
 class State:
   '''
   Bundle adjustment state, stores all camera parameters as a 1D array
-  
+
   Warning: state.cameras getter is expensive because it recomputes cameras from params on each call
   '''
 
@@ -55,7 +55,8 @@ class State:
     '''
     updatedParams = np.copy(self._params)
     for i in range(len(self._params)):
-      updatedParams[i] -= update[i]
+      if (i < 3 or i > 5):
+        updatedParams[i] -= update[i]
     
     return State(updatedParams)
 

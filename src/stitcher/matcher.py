@@ -33,16 +33,15 @@ class Matcher:
     4. Order matches by confidence 
     '''
     
-    # try:
-    #   pairwise_matches = pickle.load(open('pairwise_matches.p', 'rb'))
-    #   print('Loaded previous pairwise_matches')
-    # except (OSError, IOError):    
-    for img in self._imgs:
-      img.extract_sift_features()
-
-    paired, potential_pairs_matches = self._match_keypoints()
-    pairwise_matches = self._pairwise_match_images(paired, potential_pairs_matches)
-    pickle.dump(pairwise_matches, open('pairwise_matches.p', 'wb'))
+    try:
+      pairwise_matches = pickle.load(open('pairwise_matches.p', 'rb'))
+      print('Loaded previous pairwise_matches')
+    except (OSError, IOError):    
+      for img in self._imgs:
+        img.extract_sift_features()
+      paired, potential_pairs_matches = self._match_keypoints()
+      pairwise_matches = self._pairwise_match_images(paired, potential_pairs_matches)
+      pickle.dump(pairwise_matches, open('pairwise_matches.p', 'wb'))
 
     self._matches = pairwise_matches
     return pairwise_matches
