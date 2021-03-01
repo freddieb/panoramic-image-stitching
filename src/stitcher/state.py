@@ -10,13 +10,14 @@ class State:
   Warning: state.cameras getter is expensive because it recomputes cameras from params on each call
   '''
 
-  def __init__(self, params=np.empty(0)):
+  def __init__(self, params=np.empty(0, dtype=np.float64)):
     '''
     Initialise the initial state
     '''
     if (len(params) > 0):
       self._params = params
     self._original_cameras = OrderedSet()
+    self._idt = 0 # TODO: Set _idt properly (global reference camera)
 
   @property
   def params(self):
@@ -55,7 +56,7 @@ class State:
     '''
     updatedParams = np.copy(self._params)
     for i in range(len(self._params)):
-      if (i < 3 or i > 5):
+      if (i < self._idt * 6 + 3 or i >= self._idt * 6 + 6):
         updatedParams[i] -= update[i]
     
     return State(updatedParams)
@@ -70,3 +71,5 @@ class State:
       self._params[i+1] = camera.ppx
       self._params[i+2] = camera.ppy
       self._params[i+3:i+6] = camera.angle_parameterisation()
+      # if (self._params[i+3] == 0 and self._params[i+4] == 0 and self._params[i+5] == 0):
+      #   self._idt = i

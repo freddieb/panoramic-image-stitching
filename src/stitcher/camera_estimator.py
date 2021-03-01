@@ -12,15 +12,19 @@ class CameraEstimator:
 
 
   def estimate(self):
+
+    for m in self._matches:
+      print(f'Match (unordered) {m.cam_from.image.filename} and {m.cam_to.image.filename}: {len(m.inliers)}')
+
     self._estimate_focal()
-    self._max_span_tree_order()
+    add_order = self._max_span_tree_order_2()
 
     # Display order
-    print(f'Match order:')
-    for (i,m) in enumerate(self._matches):
+    print(f'Add order:')
+    for (i,m) in enumerate(add_order):
       print(f'  {i} => Match {m.cam_from.image.filename} and {m.cam_to.image.filename}: {len(m.inliers)}')
 
-    self._bundle_adjustment()
+    self._bundle_adjustment(add_order)
 
 
   def _estimate_focal(self):
@@ -29,6 +33,7 @@ class CameraEstimator:
     for match in self._matches:
       focal_estimate = match.estimate_focal_from_homography()
       if (focal_estimate != 0):
+        print(f'{match.cam_from.image.filename} to {match.cam_to.image.filename}: {focal_estimate}')
         focals.append(focal_estimate)
     median_focal = np.median(focals)
 
@@ -65,7 +70,69 @@ class CameraEstimator:
     self._matches = sorted_matches
 
 
-  def _bundle_adjustment(self):
+  def _reverse_match(self, match):
+    match.cam_from, match.cam_to = match.cam_to, match.cam_from
+    match.H = np.linalg.pinv(match.H)
+    for inlier in match.inliers:
+      inlier[0], inlier[1] = inlier[1], inlier[0]
+    self._normalise_match_H(match)
+
+
+  def _normalise_match_H(self, match):
+    match.H = np.multiply(match.H, 1 / match.H[2][2])
+
+
+  def _max_span_tree_order_2(self):
+    '''
+    Finds a maximum spanning tree from all matches, with most connected edge as start point
+    '''
+    connected_nodes = set()
+    all_cameras = self._all_cameras()
+    sorted_all_cameras = sorted(all_cameras, key=lambda c:c.image.filename)
+    [print(c.image.filename) for c in sorted_all_cameras]
+    sorted_edges = sorted(self._matches, key=lambda m: len(m.inliers), reverse=True)
+    [print(f'{e.cam_from.image.filename} - {e.cam_to.image.filename}: {len(e.inliers)}') for e in sorted_edges]
+    best_edge = sorted_edges.pop(0)
+
+    if (sorted_all_cameras.index(best_edge.cam_from) > sorted_all_cameras.index(best_edge.cam_to)):
+      print("edge swapped")
+      self._reverse_match(best_edge)
+    else:
+      self._normalise_match_H(best_edge)
+
+    print(f'Best edge: {best_edge.cam_from.image.filename} - {best_edge.cam_to.image.filename}: {len(best_edge.inliers)}')
+    print(f'Best edge H: {best_edge.H}')
+
+    add_order = [best_edge]
+    connected_nodes.add(best_edge.cam_from)
+    connected_nodes.add(best_edge.cam_to)
+
+    while (len(connected_nodes) < len(all_cameras)):
+      for (i, match) in enumerate(sorted_edges):
+        if (match.cam_from in connected_nodes):
+          # Add node as is
+          edge = sorted_edges.pop(i)
+          self._normalise_match_H(edge)
+          add_order.append(edge)
+          connected_nodes.add(edge.cam_from)
+          connected_nodes.add(edge.cam_to)
+          break
+        elif (match.cam_to in connected_nodes):
+          # Reverse node and add
+          edge = sorted_edges.pop(i)
+
+          self._reverse_match(edge)
+
+          add_order.append(edge)
+          connected_nodes.add(edge.cam_from)
+          connected_nodes.add(edge.cam_to)
+          break
+    
+    return add_order
+
+
+
+  def _bundle_adjustment(self, add_order):
     '''
     Iteratively add each match to the bundle adjuster
     '''
@@ -102,41 +169,101 @@ class CameraEstimator:
 
     # print(f'{rotation.as_matrix() - R_new}')
     
-    matches_to_add = self._matches.copy()
-    added_cameras = set()
+    # #-------start-----------
+    # matches_to_add = self._matches.copy()
+    # added_cameras = set()
+    # ba = BundleAdjuster()
+
+    # # Intialise the first camera that will be used as reference frame
+    # first_cam = self._matches[0].cam_from
+    # first_cam.R = np.identity(3)
+    # first_cam.ppx, first_cam.ppy = 0, 0
+    # added_cameras.add(first_cam)
+
+    # while (len(matches_to_add) > 0):
+    #   match = matches_to_add.pop(0)
+
+    #   # Find which camera R needs to be estimated for
+    #   if (match.cam_from in added_cameras):
+    #     # cam_to_R = np.linalg.pinv(match.cam_to.K) @ match.H @ match.cam_from.K @ match.cam_from.R
+    #     cam_to_R = (np.linalg.pinv(match.cam_from.R) @ (np.linalg.pinv(match.cam_from.K) @ match.H @ match.cam_to.K)).T
+    #     match.cam_to.R = cam_to_R
+    #     match.cam_to.ppx, match.cam_to.ppy = 0, 0
+    #     print(f'{match.cam_from.image.filename} to {match.cam_to.image.filename}:\n {match.cam_to.R}\n\n')
+    #   # elif (match.cam_to in added_cameras):
+    #   #   print('to -> from match found')
+    #   #   # print(f'np.linalg.pinv(match.cam_from.K): {np.linalg.pinv(match.cam_from.K)}')
+    #   #   # print(f'np.linalg.pinv(match.H): {np.linalg.pinv(match.H)}')
+    #   #   # print(f'match.cam_from.K: {match.cam_from.K}')
+    #   #   # print(f'match.cam_from.R: {match.cam_from.R}')
+    #   #   cam_from_R = np.linalg.pinv(match.cam_from.K) @ np.linalg.pinv(match.H) @ match.cam_to.K @ match.cam_to.R 
+    #   #   match.cam_from.R = cam_from_R
+    #   #   match.cam_from.ppx, match.cam_from.ppy = 0, 0
+    #   #   print(f'{match.cam_from.image.filename} - {match.cam_from.R}')
+
+    #   # ba.add(match)
+    #   added_cameras.update(match.cams())
+
+      # for (i, match) in enumerate(matches_to_add):
+      #   # If both cameras already added, add the match to BA
+      #   if (match.cam_from in added_cameras and match.cam_to in added_cameras):
+      #     ba.add(matches_to_add.pop(i))
+      
+    #   #ba.run()
+    #   #-----end---------
+
     ba = BundleAdjuster()
 
-    # Intialise the first camera that will be used as reference frame
-    first_cam = self._matches[0].cam_from
-    first_cam.R = np.identity(3)
-    first_cam.ppx, first_cam.ppy = 0, 0
-    added_cameras.add(first_cam)
+    other_matches = set(self._matches) - set(add_order)
 
-    while (len(matches_to_add) > 0):
-      match = matches_to_add.pop(0)
+    # print(f'Total matches: {len(self._matches)}')
+    # print(f'add_order count: {len(add_order)}')
+    # print(f'other_matches count: {len(other_matches)}')
 
-      # Find which camera R needs to be estimated for
-      if (match.cam_from in added_cameras):
-        print('from -> to match found')
-        cam_to_R = np.linalg.pinv(match.cam_to.K) @ match.H @ match.cam_from.K @ match.cam_from.R
-        match.cam_to.R = cam_to_R
-        match.cam_to.ppx, match.cam_to.ppy = 0, 0
-      elif (match.cam_to in added_cameras):
-        print('to -> from match found')
-        # print(f'np.linalg.pinv(match.cam_from.K): {np.linalg.pinv(match.cam_from.K)}')
-        # print(f'np.linalg.pinv(match.H): {np.linalg.pinv(match.H)}')
-        # print(f'match.cam_from.K: {match.cam_from.K}')
-        # print(f'match.cam_from.R: {match.cam_from.R}')
-        cam_from_R = np.linalg.pinv(match.cam_from.K) @ np.linalg.pinv(match.H) @ match.cam_to.K @ match.cam_to.R 
-        match.cam_from.R = cam_from_R
-        match.cam_from.ppx, match.cam_from.ppy = 0, 0
+    identity_cam = add_order[0].cam_from
+    identity_cam.R = np.identity(3)
+    identity_cam.ppx, identity_cam.ppy = 0, 0
+
+    print('Original match params:')
+    for match in add_order:
+      print(f'{match.cam_from.image.filename} to {match.cam_to.image.filename}:\n {match.cam_to.R}\n')
+    print('------------------')
+
+    for match in add_order:
+      # print(f'match.cam_from.R: {match.cam_from.R}')
+      # print(f'match.cam_from.K: {match.cam_from.K}')
+      # print(f'match.H: {match.H}')
+      # print(f'match.cam_to.K: {match.cam_to.K}')
+      match.cam_to.R = (match.cam_from.R.T @ (np.linalg.pinv(match.cam_from.K) @ match.H @ match.cam_to.K)).T
+      match.cam_to.ppx, match.cam_to.ppy = 0, 0
+      print(f'{match.cam_from.image.filename} to {match.cam_to.image.filename}:\n {match.cam_to.R}\n')
 
       ba.add(match)
-      added_cameras.update(match.cams())
 
-      for (i, match) in enumerate(matches_to_add):
+      added_cams = ba.added_cameras()
+      to_add = set()
+      for other_match in other_matches:
         # If both cameras already added, add the match to BA
-        if (match.cam_from in added_cameras and match.cam_to in added_cameras):
-          ba.add(matches_to_add.pop(i))
-      
-      ba.run()
+        if (other_match.cam_from in added_cams and other_match.cam_to in added_cams):
+          to_add.add(other_match)
+      for match in to_add:
+        self._reverse_match(match)
+        ba.add(match)
+        other_matches.remove(match)
+
+    ba.run()
+      # return
+
+    # print('---------------------------------')
+    # print("------ Actual BA ----------------")
+    # testBA = BundleAdjuster()
+    # testMatches = ba.matches()
+
+    # testBA.add(testMatches[3])
+    # testBA.add(testMatches[4])
+    # testBA.add(testMatches[1])
+    # testBA.add(testMatches[2])
+    # self._reverse_match(testMatches[0])
+    # testBA.add(testMatches[0])
+
+    # testBA.run()

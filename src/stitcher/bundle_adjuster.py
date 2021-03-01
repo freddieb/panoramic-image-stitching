@@ -1,7 +1,9 @@
+import enum
 import math
 import random
 import numpy as np
 from numpy.core.numeric import cross
+import re
 from ordered_set import OrderedSet
 from state import State
 from constants import PARAMS_PER_CAMERA, PARAMS_PER_POINT_MATCH, REGULARISATION_PARAM, MAX_ITR
@@ -41,6 +43,14 @@ class BundleAdjuster:
     self._cameras = OrderedSet()
 
 
+  def matches(self):
+    return self._matches
+
+
+  def added_cameras(self):
+    return self._cameras
+
+
   def add(self, match):
     '''
     Add a match to the bundle adjuster
@@ -49,7 +59,8 @@ class BundleAdjuster:
     self._match_count.append(num_pointwise_matches)
 
     self._matches.append(match)
-    self._cameras.update(match.cams())
+    for cam in match.cams():
+      self._cameras.add(cam)
 
     print(f'Added match {match}')
 
@@ -63,41 +74,60 @@ class BundleAdjuster:
 
     print(f'Running bundle adjustment...')
 
-    curr_state = State()
-    curr_state.set_initial_cameras(self._cameras)
+    initial_state = State()
+    initial_state.set_initial_cameras(self._cameras)
 
-    residuals_curr = self._projection_errors(curr_state)
-    error_val_curr = math.sqrt(np.mean(residuals_curr**2))
+    intial_residuals = self._projection_errors(initial_state)
+    intial_error = math.sqrt(np.mean(intial_residuals**2))
     
-    print(f'Initial error: {error_val_curr}')
+    print(f'Initial error: {intial_error}')
+
+    # print('Params')
+    # for param in curr_state.params:
+    #   print(param)
 
     itr_count = 0
     non_decrease_count = 0
-    best_state = curr_state
-    best_error = error_val_curr
+    best_state = initial_state
+    best_residuals = intial_residuals
+    best_error = intial_error
 
     while (itr_count < MAX_ITR):
-      J, JtJ = self._calculateJacobian(best_state)
-      param_update = self._get_next_update(J, JtJ, residuals_curr)
-      next_state = curr_state.updatedState(param_update)
+      print(f'[{itr_count}] Curr state: \n')
+      for (i, el) in enumerate(best_state.params):
+        print(f'\t[{i}]: {el}')
+
+      J, JtJ = self._calculate_jacobian(best_state)
+      param_update = self._get_next_update(J, JtJ, best_residuals)
+      next_state = best_state.updatedState(param_update)
 
       next_residuals = self._projection_errors(next_state)
       next_error_val = math.sqrt(np.mean(next_residuals**2))
       print(f'Next error: {next_error_val}')
+      # return
 
       if (next_error_val >= best_error - 1e-3):
         non_decrease_count += 1
       else:
+        print('Updating state to new best state')
         non_decrease_count = 0
         best_error = next_error_val
+
+        for i in range(len(best_state.params)):
+          print(f'{best_state.params[i]} -> {next_state.params[i]}')
+
         best_state = next_state
+        best_residuals = next_residuals;
       
       if (non_decrease_count > 5):
         break
 
+    print(f'BEST ERROR {best_error}')
+
     # Update actual camera object params
-    new_cameras = curr_state.cameras
+    new_cameras = initial_state.cameras
     for i in range(len(new_cameras)):
+      print(f'{self._cameras[i].R} = {new_cameras[i].R}')
       self._cameras[i].focal = new_cameras[i].focal
       self._cameras[i].ppx = new_cameras[i].ppx
       self._cameras[i].ppy = new_cameras[i].ppy
@@ -109,7 +139,7 @@ class BundleAdjuster:
       [0, -z, y],
       [z, 0, -x],
       [-y, x, 0]
-    ])
+    ], dtype=np.float64)
 
   def _dR_dvi(self, rotation_matrix, x, y, z):
     '''
@@ -147,7 +177,7 @@ class BundleAdjuster:
     return np.array([
       -dhdv[0] * hz_inv + dhdv[2] * homo[0] * hz_sqr_inv,
       -dhdv[1] * hz_inv + dhdv[2] * homo[1] * hz_sqr_inv
-    ])
+    ], dtype=np.float64)
 
 
   def _homogeneous_coordinate_2d(self, coordinate):
@@ -156,119 +186,182 @@ class BundleAdjuster:
     '''
     return np.append(coordinate, [1])
 
+
+  def _trans(self, transform, coordinate):
+    if (len(coordinate) == 2):
+      return self._trans(transform, self._homogeneous_coordinate_2d(coordinate))
+    elif (len(coordinate) == 3):
+      return transform @ coordinate
+
   
-  def _calculateJacobian(self, state):
-    params = state.params
-    cameras = state.cameras
+  def _calculate_jacobian(self, state):
+    with open('ba_test_data.txt', 'w') as f:
 
-    num_cams = len(cameras)
-    num_pointwise_matches = sum(len(match.inliers) for match in self._matches)
+      params = state.params
+      cameras = state.cameras
 
-    J = np.zeros((PARAMS_PER_POINT_MATCH * num_pointwise_matches, PARAMS_PER_CAMERA * num_cams), dtype=np.float64)
-    JtJ = np.zeros((PARAMS_PER_CAMERA * num_cams, PARAMS_PER_CAMERA * num_cams), dtype=np.float64)
+      f.write('Params:\n')
+      for (i, param) in enumerate(params):
+        f.write(f'[{i}] {param}\n')
 
-    all_dRdvi = []
-    for i in range(len(cameras)):
-      param_i = i * PARAMS_PER_CAMERA
-      x, y, z = params[param_i+3:param_i+6]
-      dRdvi = self._dR_dvi(cameras[i].R, x, y, z)
-      all_dRdvi.append(dRdvi)
+      f.write('\nCameras:\n')
+      for (i, camera) in enumerate(cameras):
+        f.write(f'[{i}] Focal: {cameras[i].focal}, R: {cameras[i].R}\n')
 
-    for (i, match) in enumerate(self._matches):
-      match_count_idx = self._match_count[i] * 2
 
-      cam_to_idx = self._cameras.index(match.cam_to)
-      cam_from_idx = self._cameras.index(match.cam_from)
+      num_cams = len(cameras)
+      num_pointwise_matches = sum(len(match.inliers) for match in self._matches)
 
-      cam_to = cameras[cam_to_idx]
-      cam_from = cameras[cam_from_idx]
+      J = np.zeros((PARAMS_PER_POINT_MATCH * num_pointwise_matches, PARAMS_PER_CAMERA * num_cams), dtype=np.float64)
+      JtJ = np.zeros((PARAMS_PER_CAMERA * num_cams, PARAMS_PER_CAMERA * num_cams), dtype=np.float64)
 
-      params_index_from = cam_from_idx * PARAMS_PER_CAMERA
-      params_index_to = cam_to_idx * PARAMS_PER_CAMERA
-      from_K = cam_from.K
-      to_K_inv = np.linalg.pinv(cam_to.K)
-      from_R = cam_from.R
-      to_R_inv = np.linalg.pinv(cam_to.R)
-      d_R_from_vi = all_dRdvi[cam_from_idx]
-      d_R_to_vi = np.copy(all_dRdvi[cam_to_idx])
-      d_R_to_vi_T = [m.T for m in d_R_to_vi]
+      all_dRdvi = []
+      for i in range(len(cameras)):
+        param_i = i * PARAMS_PER_CAMERA
+        x, y, z = params[param_i+3:param_i+6]
+        dRdvi = self._dR_dvi(cameras[i].R, x, y, z)
+        all_dRdvi.append(dRdvi)
 
-      H_to_to_from = (from_K @ from_R) @ (to_R_inv @ to_K_inv)
+      for (i, match) in enumerate(self._matches):
+        # print(f'------------\n')
+        # print(f'Loop itr: {i}')
+        match_count_idx = self._match_count[i] * 2
 
-      for (pair_index, pair) in enumerate(match.inliers):
-        to_coordinate = pair[1]
-        homo = H_to_to_from @ self._homogeneous_coordinate_2d(to_coordinate)
-        hz_sqr_inv = 1 / math.sqrt(homo[2])
-        hz_inv = 1 / homo[2]
+        cam_to_idx = self._cameras.index(match.cam_to)
+        cam_from_idx = self._cameras.index(match.cam_from)
 
-        d_from = np.zeros((PARAMS_PER_CAMERA, PARAMS_PER_POINT_MATCH))
-        d_to = np.zeros((PARAMS_PER_CAMERA, PARAMS_PER_POINT_MATCH))
+        cam_to = cameras[cam_to_idx]
+        cam_from = cameras[cam_from_idx]
 
-        m = from_R @ to_R_inv @ to_K_inv
-        dot_u2 = m @ self._homogeneous_coordinate_2d(to_coordinate)
-        dot_u2[2] = 1
+        # print(f'from.R: {cam_from.R}')
+        # print(f'to.R: {cam_to.R}')
 
-        d_from[0] = self._drdv(self.FOCAL_DERIVATIVE @ dot_u2, homo, hz_inv, hz_sqr_inv)
-        d_from[1] = self._drdv(self.PPX_DERIVATIVE @ dot_u2, homo, hz_inv, hz_sqr_inv)
-        d_from[2] = self._drdv(self.PPY_DERIVATIVE @ dot_u2, homo, hz_inv, hz_sqr_inv)
+        params_index_from = cam_from_idx * PARAMS_PER_CAMERA
+        params_index_to = cam_to_idx * PARAMS_PER_CAMERA
 
-        dot_u2 = (to_R_inv @ to_K_inv) @ self._homogeneous_coordinate_2d(to_coordinate)
-        dot_u2[2] = 1
+        # print(f'params_index_from: {params_index_from}')
+        # print(f'params_index_to: {params_index_to}')
 
-        d_from[3] = self._drdv((from_K @ d_R_from_vi[0]), homo, hz_inv, hz_sqr_inv) @ dot_u2
-        d_from[4] = self._drdv((from_K @ d_R_from_vi[1]), homo, hz_inv, hz_sqr_inv) @ dot_u2
-        d_from[5] = self._drdv((from_K @ d_R_from_vi[2]), homo, hz_inv, hz_sqr_inv) @ dot_u2
+        from_K = cam_from.K
+        to_K_inv = np.linalg.pinv(cam_to.K)
+        to_R_inv = cam_to.R.T
+        from_R = cam_from.R
+        d_R_from_vi = all_dRdvi[cam_from_idx]
+        d_R_to_vi = np.copy(all_dRdvi[cam_to_idx])
+        d_R_to_vi_T = [m.T for m in d_R_to_vi]
 
-        m = from_K @ from_R @ to_R_inv @ to_K_inv
-        dot_u2 = (to_K_inv @ self._homogeneous_coordinate_2d(to_coordinate)) * -1
-        dot_u2[2] = 1
+        H_to_to_from = (from_K @ from_R) @ (to_R_inv @ to_K_inv)
+        # print(f'H_to_to_from: {H_to_to_from}')
 
-        d_to[0] = self._drdv((m @ self.FOCAL_DERIVATIVE), homo, hz_inv, hz_sqr_inv) @ dot_u2
-        d_to[1] = self._drdv((m @ self.PPX_DERIVATIVE), homo, hz_inv, hz_sqr_inv) @ dot_u2
-        d_to[2] = self._drdv((m @ self.PPY_DERIVATIVE), homo, hz_inv, hz_sqr_inv) @ dot_u2
+        for (pair_index, pair) in enumerate(match.inliers):
+          to_coordinate = pair[1]
+          homo = self._trans(H_to_to_from, to_coordinate)
+          hz_sqr_inv = 1 / (homo[2]**2)
+          hz_inv = 1 / homo[2]
 
-        m = from_K @ from_R
-        dot_u2 = to_K_inv @ self._homogeneous_coordinate_2d(to_coordinate)
-        dot_u2[2] = 1
+          d_from = np.zeros((PARAMS_PER_CAMERA, PARAMS_PER_POINT_MATCH))
+          d_to = np.zeros((PARAMS_PER_CAMERA, PARAMS_PER_POINT_MATCH))
 
-        d_to[3] = self._drdv((m @ d_R_to_vi_T[0]), homo, hz_inv, hz_sqr_inv) @ dot_u2
-        d_to[4] = self._drdv((m @ d_R_to_vi_T[1]), homo, hz_inv, hz_sqr_inv) @ dot_u2
-        d_to[5] = self._drdv((m @ d_R_to_vi_T[2]), homo, hz_inv, hz_sqr_inv) @ dot_u2
-        
-        for param_idx in range(PARAMS_PER_CAMERA):
-          # IS pair_index CORRECT HERE?
-          J[match_count_idx, params_index_from + param_idx] = d_from[param_idx][0]
-          J[match_count_idx, params_index_to + param_idx] = d_to[param_idx][0]
-          J[match_count_idx+1, params_index_from + param_idx] = d_from[param_idx][1]
-          J[match_count_idx+1, params_index_to + param_idx] = d_to[param_idx][1]
+          m = from_R @ to_R_inv @ to_K_inv
+          dot_u2 = self._trans(m, to_coordinate)#m @ self._homogeneous_coordinate_2d(to_coordinate)
 
-        for param_idx_i in range(PARAMS_PER_CAMERA):
-          for param_idx_j in range(PARAMS_PER_CAMERA):
-            i1 = params_index_from + param_idx_i
-            i2 = params_index_to + param_idx_j
-            val = np.dot(d_from[param_idx_i], d_to[param_idx_j])
-            JtJ[i1][i2] += val
-            JtJ[i2][i1] += val
+          d_from[0] = self._drdv(self._trans(self.FOCAL_DERIVATIVE, dot_u2), homo, hz_inv, hz_sqr_inv)
+          d_from[1] = self._drdv(self._trans(self.PPX_DERIVATIVE, dot_u2), homo, hz_inv, hz_sqr_inv)
+          d_from[2] = self._drdv(self._trans(self.PPY_DERIVATIVE, dot_u2), homo, hz_inv, hz_sqr_inv)
 
-        for param_idx_i in range(PARAMS_PER_CAMERA):
-          for param_idx_j in range(param_idx_i, PARAMS_PER_CAMERA):
-            i1 = params_index_from + param_idx_i
-            i2 = params_index_from + param_idx_j
-            val = d_to[param_idx_i] @ d_from[param_idx_j]
-            JtJ[i1][i2] += val
-            if (param_idx_i != param_idx_j):
+          dot_u2 = self._trans((to_R_inv @ to_K_inv), to_coordinate)
+
+          f.write(f'dot_u2: {dot_u2}\n')
+          f.write(f'from_K: {from_K}\n')
+          f.write(f'd_R_from_vi[0]: {d_R_from_vi[0]}\n')
+          f.write(f'homo: {homo}\n')
+          f.write(f'hz_inv: {hz_inv}\n')
+          f.write(f'hz_sqr_inv: {hz_sqr_inv}\n')
+
+          d_from[3] = self._drdv(self._trans((from_K @ d_R_from_vi[0]), dot_u2), homo, hz_inv, hz_sqr_inv)
+          d_from[4] = self._drdv(self._trans((from_K @ d_R_from_vi[1]), dot_u2), homo, hz_inv, hz_sqr_inv)
+          d_from[5] = self._drdv(self._trans((from_K @ d_R_from_vi[2]), dot_u2), homo, hz_inv, hz_sqr_inv)
+
+          m = from_K @ from_R @ to_R_inv @ to_K_inv
+          dot_u2 = self._trans(to_K_inv, to_coordinate) * -1
+
+          # print(f'dot_u2: {dot_u2}')
+
+          d_to[0] = self._drdv(self._trans((m @ self.FOCAL_DERIVATIVE), dot_u2), homo, hz_inv, hz_sqr_inv)
+          d_to[1] = self._drdv(self._trans((m @ self.PPX_DERIVATIVE), dot_u2), homo, hz_inv, hz_sqr_inv)
+          d_to[2] = self._drdv(self._trans((m @ self.PPY_DERIVATIVE), dot_u2), homo, hz_inv, hz_sqr_inv)
+
+          # d_to[1], d_to[2] = d_to[2], d_to[1]
+
+          m = from_K @ from_R
+          dot_u2 = self._trans(to_K_inv, to_coordinate)
+
+          d_to[3] = self._drdv(self._trans((m @ d_R_to_vi_T[0]), dot_u2), homo, hz_inv, hz_sqr_inv)
+          d_to[4] = self._drdv(self._trans((m @ d_R_to_vi_T[1]), dot_u2), homo, hz_inv, hz_sqr_inv)
+          d_to[5] = self._drdv(self._trans((m @ d_R_to_vi_T[2]), dot_u2), homo, hz_inv, hz_sqr_inv)
+
+          # print(f'dfrom: {d_from}')
+          # print(f'dto: {d_to}')
+
+          f.write(f'dfrom: {d_from}\n')
+          f.write(f'dto: {d_to}\n')
+
+          # if (pair_index == 0):
+          #     print(f'dfrom: {d_from}')
+          #     print(f'dto: {d_to}')
+          
+          for param_idx in range(PARAMS_PER_CAMERA):
+            # IS pair_index CORRECT HERE?
+            J[match_count_idx, params_index_from + param_idx] = d_from[param_idx][0]
+            # print(f'({match_count_idx}, {params_index_from + param_idx}) dfrom[{param_idx}].x: {d_from[param_idx][0]}')
+            J[match_count_idx, params_index_to + param_idx] = d_to[param_idx][0]
+            # print(f'({match_count_idx}, {params_index_to + param_idx}) dto[{param_idx}].x: {d_to[param_idx][0]}')
+            J[match_count_idx+1, params_index_from + param_idx] = d_from[param_idx][1]
+            # print(f'({match_count_idx+1}, {params_index_from + param_idx}) dfrom[{param_idx}].y: {d_from[param_idx][1]}')
+            J[match_count_idx+1, params_index_to + param_idx] = d_to[param_idx][1]
+            # print(f'({match_count_idx+1}, {params_index_to + param_idx}) dto[{param_idx}].y: {d_to[param_idx][1]}')
+
+            f.write(f'({match_count_idx}, {params_index_from + param_idx}) dfrom[{param_idx}].x: {d_from[param_idx][0]}\n')
+            f.write(f'({match_count_idx}, {params_index_to + param_idx}) dto[{param_idx}].x: {d_to[param_idx][0]}\n')
+            f.write(f'({match_count_idx+1}, {params_index_from + param_idx}) dfrom[{param_idx}].y: {d_from[param_idx][1]}\n')
+            f.write(f'({match_count_idx+1}, {params_index_to + param_idx}) dto[{param_idx}].y: {d_to[param_idx][1]}\n')
+
+          for param_idx_i in range(PARAMS_PER_CAMERA):
+            for param_idx_j in range(PARAMS_PER_CAMERA):
+              # f.write(f'[l1] index_from: {params_index_from}, index_to: {params_index_to}, i: {param_idx_i}, j: {param_idx_j}\n')
+              i1 = params_index_from + param_idx_i
+              i2 = params_index_to + param_idx_j
+              val = d_from[param_idx_i] @ d_to[param_idx_j]
+              JtJ[i1][i2] += val
               JtJ[i2][i1] += val
-            
-            i1 = params_index_to + param_idx_i
-            i2 = params_index_to + param_idx_j
-            val = np.dot(d_to[param_idx_i], d_to[param_idx_j])
-            JtJ[i1][i2] += val
-            if (param_idx_i != param_idx_j):
-              JtJ[i2][i1] += val
 
-        match_count_idx += 2
-    
-    return J, JtJ
+              f.write(f'JtJ[{i1}][{i2}] += {val}\n')
+              f.write(f'JtJ[{i2}][{i1}] += {val}\n')
+
+          for param_idx_i in range(PARAMS_PER_CAMERA):
+            for param_idx_j in range(param_idx_i, PARAMS_PER_CAMERA):
+              # f.write(f'[l2] index_from: {params_index_from}, index_to: {params_index_to}, i: {param_idx_i}, j: {param_idx_j}\n')
+              i1 = params_index_from + param_idx_i
+              i2 = params_index_from + param_idx_j
+              val = d_from[param_idx_i] @ d_from[param_idx_j]
+              JtJ[i1][i2] += val
+              f.write(f'JtJ[{i1}][{i2}] += {val}\n')
+              if (param_idx_i != param_idx_j):
+                JtJ[i2][i1] += val
+                f.write(f'JtJ[{i2}][{i1}] += {val}\n')
+              
+              i1 = params_index_to + param_idx_i
+              i2 = params_index_to + param_idx_j
+              val = d_to[param_idx_i] @ d_to[param_idx_j]
+              JtJ[i1][i2] += val
+              f.write(f'JtJ[{i1}][{i2}] += {val}\n')
+              if (param_idx_i != param_idx_j):
+                JtJ[i2][i1] += val
+                f.write(f'JtJ[{i2}][{i1}] += {val}\n')
+
+          match_count_idx += 2
+      
+      return J, JtJ
 
   
   def _transform_2d(self, H, coordinate):
@@ -295,9 +388,10 @@ class BundleAdjuster:
       from_K = cam_from.K
       from_R = cam_from.R
       to_K_inv = np.linalg.pinv(cam_to.K)
-      to_R_inv = np.linalg.pinv(cam_to.R)
+      to_R_inv = cam_to.R.T
       H_to_to_from = (from_K @ from_R) @ (to_R_inv @ to_K_inv)
 
+      start = count
       for pair in match.inliers:
         from_coordinate = pair[0]
         to_coordinate = pair[1]
@@ -307,6 +401,8 @@ class BundleAdjuster:
         error[count+1] = from_coordinate[1] - transformed[1]
 
         count += 2
+
+      # print(f'Match from_{self._cameras.index(match.cam_from)} to_{self._cameras.index(match.cam_to)} error: {math.sqrt(np.mean(error[start:]**2))}')
     
     # print(f'projection_error ({len(error)}):\n{error}')
 
@@ -314,18 +410,98 @@ class BundleAdjuster:
 
 
   def _get_next_update(self, J, JtJ, residuals):
-    # Regularisation
+    # # Regularisation
     l = random.normalvariate(1, 0.1)
+    # print(f'random.normalvariate(10, 20): {random.normalvariate(10, 20)}')
     for i in range(len(self._cameras) * PARAMS_PER_CAMERA):
       if (i % PARAMS_PER_CAMERA >= 3):
-        JtJ[i][i] += REGULARISATION_PARAM #(3.14/16)**2 * l
+        JtJ[i][i] += 5#(3.14/16)**2 * l #random.normalvariate(10, 20) * 5000000000
       else:
-        JtJ[i][i] += REGULARISATION_PARAM / 10#(1000 / 10)**2 * l
+        JtJ[i][i] += 5/10#(1500 / 10)**2 * l # TODO: Use intial focal estimate #random.normalvariate(10, 20) * 5000000000
 
     # print(f'J.T shape: {J.T.shape}')
     # print(f'residuals: {residuals}')
 
+
+    with open('test_error_residuals.txt', 'w') as f:
+      for r in residuals:
+        f.write(f'{r}\n')
+
+    openpano_JtJ = np.zeros((24,24), dtype=np.float64)
+    filename = 'ba_optimize.txt'
+    readingB = False
+    openpano_b = []
+    with open('./match_test_data/' + filename, 'r') as fp:
+      for line in fp:
+        if re.match(r'^\(', line):
+          tings = [x for x in re.findall(r'\-?\d+\.?\d*e?\+?\d*', line)]
+          # print(float(tings[2]))
+          openpano_JtJ[int(tings[0])][int(tings[1])] = float(tings[2])
+        elif re.match(r'b:', line):
+          readingB = True
+        elif (readingB and not re.match(r'^\s$', line)):
+          bVal = [x for x in re.findall(r'\-?\d+\.?\d*e?\+?\d*', line)]
+          # print(float(bVal[0]))
+          openpano_b.append(float(bVal[0]))
+        elif (readingB and re.match(r'^\s$', line)):
+          readingB = False
+    openpano_b = np.asarray(openpano_b, dtype=np.float64)
+
+    with open('JtJ_test.txt', 'w') as f:
+      print(f'JtJ.shape : {JtJ.shape}')
+      for i in range(JtJ.shape[0]):
+        for j in range(JtJ.shape[1]):
+          f.write(f'({i}, {j}) {JtJ[i][j]}\n')
+
     b = J.T @ residuals
+
+    with open('JtJ_test_comparison.txt', 'w') as f:
+      print(f'JtJ.shape : {JtJ.shape}')
+      for i in range(JtJ.shape[0]):
+        for j in range(JtJ.shape[1]):
+          percentDiff = ((openpano_JtJ[i][j] - JtJ[i][j]) / openpano_JtJ[i][j]) * 100
+          if (abs(percentDiff) > 0.001):
+            f.write(f'({i}, {j}) JtJ={JtJ[i][j]}, OpenPano_JtJ={openpano_JtJ[i][j]} [Diff={percentDiff}]\n')
+
+      f.write('\nb:\n')
+      for (i, el) in enumerate(b):
+        percentDiff = ((openpano_b[i] - b[i]) / openpano_b[i]) * 100
+        if (abs(percentDiff) > 0.001):
+          f.write(f'({i}) b={b[i]}, openpano_b={openpano_b[i]} [Diff={percentDiff}]\n')
+
+    # JtJ = openpano_JtJ
+    # b = openpano_b
     updates = np.linalg.solve(JtJ, b)
-    # print(f'updates: {updates}')
+    
+    # print('b:')
+    # for (i, el) in enumerate(b):
+    #   print(f'\t[{i}]: {el}')
+    
+    # print('Updates:')
+    # for (i, update) in enumerate(updates):
+    #   print(f'\t[{i}]: {update}')
+
+    # print('Recomputed b vector:')
+    # for (i, newB) in enumerate(JtJ@updates):
+    #   print(f'\tnewB: {newB}')
+
+    # updates = []
+    # filename = 'ba_optimize.txt'
+    # readingB = False
+    # with open('./match_test_data/' + filename, 'r') as fp:
+    #   for line in fp:
+    #     if re.match(r'Update:', line):
+    #       readingB = True
+    #     elif (readingB and re.match(r'^\t+', line)):
+    #       bVal = [x for x in re.findall(r'\-?\d+\.?\d*e?\+?\d*', line)]
+    #       # print(float(bVal[0]))
+    #       updates.append(float(bVal[0]))
+    #     elif (readingB and re.match(r'^\s$', line)):
+    #       readingB = False
+    
+    # print('Updates')
+    # for update in updates:
+    #   print(update)
+    # updates = np.array(updates, dtype=np.float64)
+    
     return updates
