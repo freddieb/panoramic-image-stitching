@@ -1,5 +1,6 @@
 import numpy as np
 import argparse
+import cv2 as cv
 import os
 import re
 
@@ -58,7 +59,13 @@ if __name__ == '__main__':
       match_cams.add(nums[0])
       match_cams.add(nums[1])
 
-  cams = [Camera(Image(None, 'no-image-' + str(x))) for x in match_cams]
+  imgs = {}
+  for filename in sorted(os.listdir('../data/carmel_all')):
+    img = cv.imread(os.path.join('../data/carmel_all', filename))
+    if img is not None:
+      imgs[filename] = img
+
+  cams = [Camera(Image(imgs['carmel-0' + str(x) + '.png'], 'carmel-0' + str(x) + '.png')) for x in match_cams]
   
   matches = [] # (H, [[[x,y], [x',y']], ...])
   for filename in os.listdir('./match_test_data'):
@@ -103,7 +110,10 @@ if __name__ == '__main__':
         print(filename)
         print(f'Inliers left: {curr_inliers}')
         raise Exception()
-      matches.append(Match(cams[cam_from_idx], cams[cam_to_idx], H, inliers))
+      H = np.linalg.pinv(H)
+      for inlier in inliers:
+        inlier[0], inlier[1] = inlier[1], inlier[0]
+      matches.append(Match(cams[cam_to_idx], cams[cam_from_idx], H, inliers))
 
   camera_estimator = CameraEstimator(matches)
   camera_estimator.estimate()

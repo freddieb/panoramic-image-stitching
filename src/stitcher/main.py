@@ -7,6 +7,7 @@ import copyreg
 from camera_estimator import CameraEstimator
 from matcher import Matcher
 from image import Image
+from stitch import Stitch
 
 ######## Fixes cv.KeyPoint pickle error ##################################
 def _pickle_keypoints(point):
@@ -67,4 +68,12 @@ if __name__ == '__main__':
   #   cv.waitKey(0)
 
   camera_estimator = CameraEstimator(matcher.matches)
-  camera_estimator.estimate()
+  estimated_cameras = camera_estimator.estimate()
+
+  stitch = Stitch(estimated_cameras)
+  stitch.run()
+
+  cv.imshow('Result', stitch.stitched_img)
+  cv.imwrite('./stitched_img.png', stitch.stitched_img) 
+  cv.waitKey(0)
+

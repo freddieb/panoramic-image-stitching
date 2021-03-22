@@ -188,3 +188,6 @@ dmypy.json
 # Pickled objects
 *.p 
 /data
+stitched_img.png
+/*.txt
+/match_test_data

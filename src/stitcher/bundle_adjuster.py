@@ -82,9 +82,9 @@ class BundleAdjuster:
     
     print(f'Initial error: {intial_error}')
 
-    # print('Params')
-    # for param in curr_state.params:
-    #   print(param)
+    print('Initial params')
+    for param in initial_state.params:
+      print(param)
 
     itr_count = 0
     non_decrease_count = 0
@@ -93,9 +93,9 @@ class BundleAdjuster:
     best_error = intial_error
 
     while (itr_count < MAX_ITR):
-      print(f'[{itr_count}] Curr state: \n')
-      for (i, el) in enumerate(best_state.params):
-        print(f'\t[{i}]: {el}')
+      # print(f'[{itr_count}] Curr state: \n')
+      # for (i, el) in enumerate(best_state.params):
+      #   print(f'\t[{i}]: {el}')
 
       J, JtJ = self._calculate_jacobian(best_state)
       param_update = self._get_next_update(J, JtJ, best_residuals)
@@ -113,8 +113,8 @@ class BundleAdjuster:
         non_decrease_count = 0
         best_error = next_error_val
 
-        for i in range(len(best_state.params)):
-          print(f'{best_state.params[i]} -> {next_state.params[i]}')
+        # for i in range(len(best_state.params)):
+        #   print(f'{best_state.params[i]} -> {next_state.params[i]}')
 
         best_state = next_state
         best_residuals = next_residuals;
@@ -125,9 +125,10 @@ class BundleAdjuster:
     print(f'BEST ERROR {best_error}')
 
     # Update actual camera object params
-    new_cameras = initial_state.cameras
+    new_cameras = best_state.cameras
     for i in range(len(new_cameras)):
-      print(f'{self._cameras[i].R} = {new_cameras[i].R}')
+      # print(f'{self._cameras[i].R} = {new_cameras[i].R}')
+      print(f'Final focal: {new_cameras[i].focal}')
       self._cameras[i].focal = new_cameras[i].focal
       self._cameras[i].ppx = new_cameras[i].ppx
       self._cameras[i].ppy = new_cameras[i].ppy
@@ -402,7 +403,7 @@ class BundleAdjuster:
 
         count += 2
 
-      # print(f'Match from_{self._cameras.index(match.cam_from)} to_{self._cameras.index(match.cam_to)} error: {math.sqrt(np.mean(error[start:]**2))}')
+      print(f'Match from_{match.cam_from.image.filename} to_{match.cam_to.image.filename} error: {math.sqrt(np.mean(error[start:]**2))}')
     
     # print(f'projection_error ({len(error)}):\n{error}')
 
@@ -415,59 +416,60 @@ class BundleAdjuster:
     # print(f'random.normalvariate(10, 20): {random.normalvariate(10, 20)}')
     for i in range(len(self._cameras) * PARAMS_PER_CAMERA):
       if (i % PARAMS_PER_CAMERA >= 3):
-        JtJ[i][i] += 5#(3.14/16)**2 * l #random.normalvariate(10, 20) * 5000000000
+        # TODO: Improve regularisation params (currently a bit off)
+        JtJ[i][i] += (3.14/16) * l #random.normalvariate(10, 20) * 5000000000
       else:
-        JtJ[i][i] += 5/10#(1500 / 10)**2 * l # TODO: Use intial focal estimate #random.normalvariate(10, 20) * 5000000000
+        JtJ[i][i] += (1500 / 10) * l # TODO: Use intial focal estimate #random.normalvariate(10, 20) * 5000000000
 
     # print(f'J.T shape: {J.T.shape}')
     # print(f'residuals: {residuals}')
 
 
-    with open('test_error_residuals.txt', 'w') as f:
-      for r in residuals:
-        f.write(f'{r}\n')
+    # with open('test_error_residuals.txt', 'w') as f:
+    #   for r in residuals:
+    #     f.write(f'{r}\n')
 
-    openpano_JtJ = np.zeros((24,24), dtype=np.float64)
-    filename = 'ba_optimize.txt'
-    readingB = False
-    openpano_b = []
-    with open('./match_test_data/' + filename, 'r') as fp:
-      for line in fp:
-        if re.match(r'^\(', line):
-          tings = [x for x in re.findall(r'\-?\d+\.?\d*e?\+?\d*', line)]
-          # print(float(tings[2]))
-          openpano_JtJ[int(tings[0])][int(tings[1])] = float(tings[2])
-        elif re.match(r'b:', line):
-          readingB = True
-        elif (readingB and not re.match(r'^\s$', line)):
-          bVal = [x for x in re.findall(r'\-?\d+\.?\d*e?\+?\d*', line)]
-          # print(float(bVal[0]))
-          openpano_b.append(float(bVal[0]))
-        elif (readingB and re.match(r'^\s$', line)):
-          readingB = False
-    openpano_b = np.asarray(openpano_b, dtype=np.float64)
+    # openpano_JtJ = np.zeros((24,24), dtype=np.float64)
+    # filename = 'ba_optimize.txt'
+    # readingB = False
+    # openpano_b = []
+    # with open('./match_test_data/' + filename, 'r') as fp:
+    #   for line in fp:
+    #     if re.match(r'^\(', line):
+    #       tings = [x for x in re.findall(r'\-?\d+\.?\d*e?\+?\d*', line)]
+    #       # print(float(tings[2]))
+    #       openpano_JtJ[int(tings[0])][int(tings[1])] = float(tings[2])
+    #     elif re.match(r'b:', line):
+    #       readingB = True
+    #     elif (readingB and not re.match(r'^\s$', line)):
+    #       bVal = [x for x in re.findall(r'\-?\d+\.?\d*e?\+?\d*', line)]
+    #       # print(float(bVal[0]))
+    #       openpano_b.append(float(bVal[0]))
+    #     elif (readingB and re.match(r'^\s$', line)):
+    #       readingB = False
+    # openpano_b = np.asarray(openpano_b, dtype=np.float64)
 
-    with open('JtJ_test.txt', 'w') as f:
-      print(f'JtJ.shape : {JtJ.shape}')
-      for i in range(JtJ.shape[0]):
-        for j in range(JtJ.shape[1]):
-          f.write(f'({i}, {j}) {JtJ[i][j]}\n')
+    # with open('JtJ_test.txt', 'w') as f:
+    #   print(f'JtJ.shape : {JtJ.shape}')
+    #   for i in range(JtJ.shape[0]):
+    #     for j in range(JtJ.shape[1]):
+    #       f.write(f'({i}, {j}) {JtJ[i][j]}\n')
 
     b = J.T @ residuals
 
-    with open('JtJ_test_comparison.txt', 'w') as f:
-      print(f'JtJ.shape : {JtJ.shape}')
-      for i in range(JtJ.shape[0]):
-        for j in range(JtJ.shape[1]):
-          percentDiff = ((openpano_JtJ[i][j] - JtJ[i][j]) / openpano_JtJ[i][j]) * 100
-          if (abs(percentDiff) > 0.001):
-            f.write(f'({i}, {j}) JtJ={JtJ[i][j]}, OpenPano_JtJ={openpano_JtJ[i][j]} [Diff={percentDiff}]\n')
+    # with open('JtJ_test_comparison.txt', 'w') as f:
+    #   print(f'JtJ.shape : {JtJ.shape}')
+    #   for i in range(JtJ.shape[0]):
+    #     for j in range(JtJ.shape[1]):
+    #       percentDiff = ((openpano_JtJ[i][j] - JtJ[i][j]) / openpano_JtJ[i][j]) * 100
+    #       if (abs(percentDiff) > 0.001):
+    #         f.write(f'({i}, {j}) JtJ={JtJ[i][j]}, OpenPano_JtJ={openpano_JtJ[i][j]} [Diff={percentDiff}]\n')
 
-      f.write('\nb:\n')
-      for (i, el) in enumerate(b):
-        percentDiff = ((openpano_b[i] - b[i]) / openpano_b[i]) * 100
-        if (abs(percentDiff) > 0.001):
-          f.write(f'({i}) b={b[i]}, openpano_b={openpano_b[i]} [Diff={percentDiff}]\n')
+    #   f.write('\nb:\n')
+    #   for (i, el) in enumerate(b):
+    #     percentDiff = ((openpano_b[i] - b[i]) / openpano_b[i]) * 100
+    #     if (abs(percentDiff) > 0.001):
+    #       f.write(f'({i}) b={b[i]}, openpano_b={openpano_b[i]} [Diff={percentDiff}]\n')
 
     # JtJ = openpano_JtJ
     # b = openpano_b

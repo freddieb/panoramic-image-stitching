@@ -33,15 +33,16 @@ class Matcher:
     4. Order matches by confidence 
     '''
     
+    print(f'Images count: {len(self._imgs)}')
     try:
-      pairwise_matches = pickle.load(open('pairwise_matches.p', 'rb'))
+      pairwise_matches = pickle.load(open(f'pairwise_matches_{len(self._imgs)}.p', 'rb'))
       print('Loaded previous pairwise_matches')
     except (OSError, IOError):    
       for img in self._imgs:
         img.extract_sift_features()
       paired, potential_pairs_matches = self._match_keypoints()
       pairwise_matches = self._pairwise_match_images(paired, potential_pairs_matches)
-      pickle.dump(pairwise_matches, open('pairwise_matches.p', 'wb'))
+      pickle.dump(pairwise_matches, open(f'pairwise_matches_{len(self._imgs)}.p', 'wb'))
 
     self._matches = pairwise_matches
     return pairwise_matches
@@ -131,13 +132,22 @@ class Matcher:
         if (np.shape(kps1)[0] < 5):
           continue
 
-        H, inliers = homography_ransac(kps1, kps2, 4, 400)
+        H, inliers = homography_ransac(kps1, kps2, 4, 400) 
+        # H, mask = cv.findHomography(kps1, kps2, cv.RANSAC, 5.0)
+        # print(f'Homography found by OpenCV:\n{H}')
+        # pretend_inliers = []
+        # for i in range(len(kps1)):
+        #   pretend_inliers.append([kps2[i], kps1[i]])
+        # inliers = pretend_inliers
+
+        for i in range(len(inliers)):
+          inliers[i][0], inliers[i][1] = inliers[i][1], inliers[i][0]
 
         # The metric from the paper 'Automatic Image Stitching Using Invariant Features' does not work (probs implemented incorrectly)
         # inliers > 8 + 0.3 * len(query_keypoints)
 
         if (len(inliers) > 20 and len(inliers) > 0.018 * len(query_keypoints)):
-          confirmed_matches.append(Match(self._cameras[query_img_index], self._cameras[pair_index], H, inliers))
+          confirmed_matches.append(Match(self._cameras[pair_index], self._cameras[query_img_index], H, inliers))
 
           print(f'Match {query_img_index} {pair_index}')
 

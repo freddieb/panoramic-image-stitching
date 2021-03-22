@@ -17,7 +17,7 @@ class State:
     if (len(params) > 0):
       self._params = params
     self._original_cameras = OrderedSet()
-    self._idt = 0 # TODO: Set _idt properly (global reference camera)
+    self._idt = 1 # TODO: Set _idt properly (global reference camera)
 
   @property
   def params(self):

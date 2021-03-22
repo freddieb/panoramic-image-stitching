@@ -3,18 +3,61 @@ from bundle_adjuster import BundleAdjuster
 from camera import Camera
 from scipy.spatial.transform import Rotation
 
+import cv2 as cv
+import pickle
+
 from scipy.spatial.transform import Rotation # TODO: remove when not required
+
+def warp_two_images(img1, img2, H):
+  '''warp img2 to img1 with homography H'''
+  h1,w1 = img1.shape[:2]
+  h2,w2 = img2.shape[:2]
+
+  pts1 = np.float32([[0,0],[0,h1],[w1,h1],[w1,0]]).reshape(-1,1,2)
+  pts2 = np.float32([[0,0],[0,h2],[w2,h2],[w2,0]]).reshape(-1,1,2)
+
+  pts2_ = cv.perspectiveTransform(pts2, H)
+  pts = np.concatenate((pts1, pts2_), axis=0)
+
+  [x_min, y_min] = np.int32(pts.min(axis=0).ravel())
+  [x_max, y_max] = np.int32(pts.max(axis=0).ravel())
+
+  t = [-x_min,-y_min]
+  Ht = np.array([[1,0,t[0]],[0,1,t[1]],[0,0,1]]) # translate by t
+
+  # b_channel, g_channel, r_channel = cv.split(img1)
+  # alpha_channel = np.ones(b_channel.shape, dtype=b_channel.dtype) * 50 #creating a dummy alpha channel image.
+  # img1 = cv.merge((b_channel, g_channel, r_channel, alpha_channel))
+
+  result = cv.warpPerspective(img2, Ht.dot(H), (x_max-x_min, y_max-y_min))
+  result[t[1]:h1+t[1],t[0]:w1+t[0]] = img1
+
+  return result
+
 
 class CameraEstimator:
 
   def __init__(self, matches):
     self._matches = matches
 
+    # for match in self._matches:
+      # match.cam_from, match.cam_to = match.cam_to, match.cam_from
+      # match.H = np.linalg.pinv(match.H)
+      # self._normalise_match_H(match)
+      # match.cam_from, match.cam_to = match.cam_to, match.cam_from
+      # print(f'H: {match.H}\n')
+      # for inlier in match.inliers:
+      #   inlier[0], inlier[1] = inlier[1], inlier[0]
+
 
   def estimate(self):
 
     for m in self._matches:
       print(f'Match (unordered) {m.cam_from.image.filename} and {m.cam_to.image.filename}: {len(m.inliers)}')
+      # for match in matcher.matches:
+      # result = warp_two_images(m.cam_to.image.image, m.cam_from.image.image, m.H)
+      # cv.imshow('Result', result)
+      # cv.waitKey(0)
 
     self._estimate_focal()
     add_order = self._max_span_tree_order_2()
@@ -23,8 +66,11 @@ class CameraEstimator:
     print(f'Add order:')
     for (i,m) in enumerate(add_order):
       print(f'  {i} => Match {m.cam_from.image.filename} and {m.cam_to.image.filename}: {len(m.inliers)}')
+    # return
 
     self._bundle_adjustment(add_order)
+
+    return self._all_cameras()
 
 
   def _estimate_focal(self):
@@ -38,6 +84,9 @@ class CameraEstimator:
     median_focal = np.median(focals)
 
     print(f'Focal set to: {median_focal}')
+
+    # if (len(focals) == 0):
+    median_focal = 1580
 
     for camera in self._all_cameras():
       camera.focal = median_focal
@@ -94,11 +143,11 @@ class CameraEstimator:
     [print(f'{e.cam_from.image.filename} - {e.cam_to.image.filename}: {len(e.inliers)}') for e in sorted_edges]
     best_edge = sorted_edges.pop(0)
 
-    if (sorted_all_cameras.index(best_edge.cam_from) > sorted_all_cameras.index(best_edge.cam_to)):
-      print("edge swapped")
-      self._reverse_match(best_edge)
-    else:
-      self._normalise_match_H(best_edge)
+    # if (sorted_all_cameras.index(best_edge.cam_from) > sorted_all_cameras.index(best_edge.cam_to)):
+    #   print("edge swapped")
+    #   self._reverse_match(best_edge)
+    # else:
+    #   self._normalise_match_H(best_edge)
 
     print(f'Best edge: {best_edge.cam_from.image.filename} - {best_edge.cam_to.image.filename}: {len(best_edge.inliers)}')
     print(f'Best edge H: {best_edge.H}')
@@ -107,7 +156,7 @@ class CameraEstimator:
     connected_nodes.add(best_edge.cam_from)
     connected_nodes.add(best_edge.cam_to)
 
-    while (len(connected_nodes) < len(all_cameras)):
+    while (len(connected_nodes) < len(sorted_all_cameras)):
       for (i, match) in enumerate(sorted_edges):
         if (match.cam_from in connected_nodes):
           # Add node as is
@@ -136,38 +185,6 @@ class CameraEstimator:
     '''
     Iteratively add each match to the bundle adjuster
     '''
-
-    # test_rotation_m = np.array(
-    #   [[ 1.03771525, -0.03411247, -0.28118836],
-    #   [ 0.07859712,  1.01348254, -0.0207753 ],
-    #   [ 0.70682254, -0.05688714,  0.80731615]
-    # ])
-
-    # cam = Camera(None)
-    # my_rotvec = cam.matrix_to_rotvec(test_rotation_m)
-    # scipy_rotvec = Rotation.from_matrix(test_rotation_m).as_rotvec()
-
-    # print(f'my_rotvec: {my_rotvec}')
-    # print(f'scipy_rotvec: {scipy_rotvec}')
-
-    # my_matrix = cam.rotvec_to_matrix(my_rotvec)
-    # scipy_matrix = Rotation.from_rotvec(scipy_rotvec).as_matrix()
-
-    # print(f'my_matrix: \n{my_matrix}')
-    # print(f'scipy_matrix: \n{scipy_matrix}')
-
-    # test_rotation_m_2 = np.array(
-    #   [[ 0.87544399, -0.05028404, -0.48069671],
-    #   [ 0.05927213,  0.99823564,  0.00352427],
-    #   [ 0.47967137, -0.03157722,  0.87687984]]
-    # )
-
-    # rotation = Rotation.from_matrix(test_rotation_m)
-    # # rotvec = rotation.as_quat()
-
-    # # new_rotation = Rotation.from_quat(rotvec)
-
-    # print(f'{rotation.as_matrix() - R_new}')
     
     # #-------start-----------
     # matches_to_add = self._matches.copy()
@@ -224,19 +241,38 @@ class CameraEstimator:
     identity_cam.R = np.identity(3)
     identity_cam.ppx, identity_cam.ppy = 0, 0
 
+    print(f'Identity cam: {identity_cam.image.filename}')
+
     print('Original match params:')
     for match in add_order:
       print(f'{match.cam_from.image.filename} to {match.cam_to.image.filename}:\n {match.cam_to.R}\n')
     print('------------------')
 
     for match in add_order:
-      # print(f'match.cam_from.R: {match.cam_from.R}')
-      # print(f'match.cam_from.K: {match.cam_from.K}')
-      # print(f'match.H: {match.H}')
-      # print(f'match.cam_to.K: {match.cam_to.K}')
+      # result = warp_two_images(match.cam_from.image.image, match.cam_to.image.image, match.H)
+      # cv.imshow('Original H from RANSAC', result)
+      print(f'match.cam_from.R: {match.cam_from.R}')
+      print(f'match.cam_from.K: {match.cam_from.K}')
+      print(f'match.H: {match.H}')
+      print(f'match.cam_to.K: {match.cam_to.K}')
+
       match.cam_to.R = (match.cam_from.R.T @ (np.linalg.pinv(match.cam_from.K) @ match.H @ match.cam_to.K)).T
       match.cam_to.ppx, match.cam_to.ppy = 0, 0
       print(f'{match.cam_from.image.filename} to {match.cam_to.image.filename}:\n {match.cam_to.R}\n')
+
+      # reconstructed_H = match.cam_from.K @ match.cam_from.R @ match.cam_to.R.T @ np.linalg.pinv(match.cam_to.K)
+      # result = warp_two_images(match.cam_from.image.image, match.cam_to.image.image, reconstructed_H)
+      # cv.imshow('Result with reconstructed H', result)
+
+      # # Matrix -> rotvec -> matrix
+      # converted_R = match.cam_to.rotvec_to_matrix(match.cam_to.angle_parameterisation())
+      # print(f'homography:\n{match.H}')
+      # print(f'converted_R matrix:\n{converted_R}')
+      # reconstructed_from_converted_R_H = match.cam_from.K @ match.cam_from.R @ converted_R.T @ np.linalg.pinv(match.cam_to.K)
+      # result = warp_two_images(match.cam_from.image.image, match.cam_to.image.image, reconstructed_from_converted_R_H)
+      # cv.imshow('Result with reconstructed H from converted R', result)
+      # cv.waitKey(0)
+      # return
 
       ba.add(match)
 
@@ -247,11 +283,61 @@ class CameraEstimator:
         if (other_match.cam_from in added_cams and other_match.cam_to in added_cams):
           to_add.add(other_match)
       for match in to_add:
-        self._reverse_match(match)
+        # self._reverse_match(match)
         ba.add(match)
         other_matches.remove(match)
+    # return
+    
+    all_cameras = None
+    try:
+      all_cameras = pickle.load(open(f'all_cameras_{len(self._all_cameras())}.p', 'rb'))
 
-    ba.run()
+      for match in self._matches:
+        for cam in all_cameras:
+          if (match.cam_to.image.filename == cam.image.filename):
+            match.cam_to = cam
+          elif (match.cam_from.image.filename == cam.image.filename):
+            match.cam_from = cam
+
+    except (OSError, IOError):    
+      ba.run()
+      all_cameras = self._all_cameras()
+      pickle.dump(all_cameras, open(f'all_cameras_{len(self._all_cameras())}.p', 'wb'))
+
+    print('BA complete.')
+
+    return
+
+    # print('Showing new homographies')
+
+    # # Get identity camera
+    # identity_cam = None
+    # for cam in all_cameras:
+    #   R = cam.R
+    #   if ((R.shape[0] == R.shape[1]) and np.allclose(R, np.eye(R.shape[0]))):
+    #     identity_cam = cam
+    #     break
+    
+    # if (identity_cam == None):
+    #   raise ValueError('No identity camera found')
+
+    # # panoImg = identity_cam.image.image
+    # # Iterate through all non-identity cameras, adding to final panorama image
+    # for cam in all_cameras:
+    #   if (cam != identity_cam):
+    #     print(f'identity_cam.K: {identity_cam.K}')
+    #     print(f'cam.K: {cam.K}')
+    #     constructed_from_converted_R_H = identity_cam.K @ identity_cam.R @ cam.R.T @ np.linalg.pinv(cam.K)
+    #     result = warp_two_images(identity_cam.image.image, cam.image.image, constructed_from_converted_R_H)
+    #     cv.imshow(f'Match {identity_cam.image.filename} to {match.cam_to.image.filename}, H from R', result)
+    #     cv.waitKey(0)
+    
+    # for match in self._matches:
+    #   constructed_from_converted_R_H = match.cam_from.K @ match.cam_from.R @ match.cam_to.R.T @ np.linalg.pinv(match.cam_to.K)
+    #   result = warp_two_images(match.cam_from.image.image, match.cam_to.image.image, constructed_from_converted_R_H)
+    #   cv.imshow(f'Match {match.cam_from.image.filename} to {match.cam_to.image.filename}, H from R', result)
+    #   cv.waitKey(0)
+
       # return
 
     # print('---------------------------------')
