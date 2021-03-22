@@ -23,13 +23,25 @@ class Match:
   def cam_to(self):
     return self._cam_to
 
+  @cam_to.setter
+  def cam_to(self, value):
+      self._cam_to = value
+
   @property
   def cam_from(self):
     return self._cam_from
+  
+  @cam_from.setter
+  def cam_from(self, value):
+      self._cam_from = value
 
   @property
   def H(self):
     return self._homography
+
+  @H.setter
+  def H(self, value):
+      self._homography = value
 
   @property
   def inliers(self):
@@ -94,7 +106,7 @@ class Match:
     d1 = h[2][0] * h[2][1]
     d2 = (h[2][1] - h[2][0]) * (h[2][1] + h[2][0])
     v1 = -(h[0][0] * h[0][1] + h[1][0] * h[1][1]) / d1
-    v2 = (h[0][0]**2 + h[1][0]**2 - h[0][1]**2 - h[1][1]**2) / d2
+    v2 = (h[0][0] * h[0][0] + h[1][0] * h[1][0] - h[0][1] * h[0][1] - h[1][1] * h[1][1]) / d2
     if (v1 < v2):
       temp = v1
       v1 = v2
@@ -107,9 +119,9 @@ class Match:
       return 0
 
     d1 = h[0][0] * h[1][0] + h[0][1] * h[1][1]
-    d2 = h[0][0]**2 + h[0][1]**2 - h[1][0]**2 - h[1][1]**2
+    d2 = h[0][0] * h[0][0] + h[0][1] * h[0][1] - h[1][0] * h[1][0] - h[1][1] * h[1][1]
     v1 = -h[0][2] * h[1][2] / d1
-    v2 = (h[1][2]**2 - h[0][2]**2) / d2
+    v2 = (h[1][2] * h[1][2] - h[0][2] * h[0][2]) / d2
     if (v1 < v2):
       temp = v1
       v1 = v2
@@ -119,6 +131,9 @@ class Match:
     elif (v1 > 0):
       f0 = math.sqrt(v1)
     else:
+      return 0
+
+    if (math.isinf(f1) or math.isinf(f0)):
       return 0
 
     return math.sqrt(f1 * f0)

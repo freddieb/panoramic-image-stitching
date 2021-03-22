@@ -19,7 +19,7 @@ class Camera:
 
   @property
   def K(self):
-    I = np.identity(3)
+    I = np.identity(3, dtype=np.float64)
     I[0][0] = self.focal
     I[0][2] = self.ppx
     I[1][1] = self.focal
@@ -55,7 +55,7 @@ class Camera:
       ry *= mul
       rz *= mul
 
-    return [rx, ry, rz]
+    return np.array([rx, ry, rz], dtype=np.float64)
 
 
   # def matrix_to_rotvec(self, R):
@@ -89,39 +89,39 @@ class Camera:
 
 
   def rotvec_to_matrix(self, rotvec):
-    # rotation = Rotation.from_rotvec(rotvec)
-    # return rotation.as_matrix()
+    rotation = Rotation.from_rotvec(rotvec)
+    return rotation.as_matrix()
 
-    rx, ry, rz = rotvec
-    theta = rx*rx + ry*ry + rx*rz
-    if (theta < 1e-7):
-      return np.array([
-        [1, -rz, ry],
-        [rz, 1, -rx],
-        [-ry, rx, 1]
-      ])
+    # rx, ry, rz = rotvec
+    # theta = rx*rx + ry*ry + rx*rz
+    # if (theta < 1e-14):
+    #   return np.array([
+    #     [1, -rz, ry],
+    #     [rz, 1, -rx],
+    #     [-ry, rx, 1]
+    #   ], dtype=np.float64)
 
-    theta = math.sqrt(theta)
-    itheta = (1/theta) if theta else 0
-    rx *= itheta
-    ry *= itheta
-    rz *= itheta
+    # theta = math.sqrt(theta)
+    # itheta = (1/theta) if theta else 0
+    # rx *= itheta
+    # ry *= itheta
+    # rz *= itheta
 
-    u_outp = [rx*rx, rx*ry, rx*rz, rx*ry, ry*ry, ry*rz, rx*rz, ry*rz, rz*rz]
-    u_crossp = [0, -rz, ry, rz, 0, -rx, -ry, rx, 0]
+    # u_outp = [rx*rx, rx*ry, rx*rz, rx*ry, ry*ry, ry*rz, rx*rz, ry*rz, rz*rz]
+    # u_crossp = [0, -rz, ry, rz, 0, -rx, -ry, rx, 0]
 
-    r = np.identity(3)
-    c = np.cos(theta)
-    s = np.sin(theta)
-    c1 = 1 - c
-    r = np.multiply(r, c)
+    # r = np.identity(3, dtype=np.float64)
+    # c = np.cos(theta)
+    # s = np.sin(theta)
+    # c1 = 1 - c
+    # r = r * c
 
-    for i in range(3):
-      for j in range(3):
-        x = i*3 + j
-        r[i][j] += c1 * u_outp[x] + s * u_crossp[x]
+    # for i in range(3):
+    #   for j in range(3):
+    #     x = i*3 + j
+    #     r[i][j] += c1 * u_outp[x] + s * u_crossp[x]
 
-    return r
+    # return r
 
 
 
