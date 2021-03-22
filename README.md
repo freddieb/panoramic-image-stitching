@@ -2,6 +2,9 @@
 
 Panoramic image stitcher based on ['Automatic Panoramic Image Stitching using Invariant Features'](http://matthewalunbrown.com/papers/ijcv2007.pdf) by Matthew Brown and David Lowe.
 
+## Example panorama
+![Carmel Panorama Example](docs/example.png)
+
 ## Installation
 Using Python 3, install:
 - numpy
@@ -29,10 +32,9 @@ python3 ./src/stitcher/main.py <path_to_input_images_directory>
 ## Datasets
 - The Adobe Panoramas Dataset has been used for testing: https://sourceforge.net/adobe/adobedatasets/panoramas/home/Home/
 
-
-
-# Doing
-
-- Refactored a lot of exisiting code (more oop)
-- Finished focal and rotation estimation 
-- Setup bundle adjuster with symbolic differentiation to build the jacobian for Levenberg-Marquardt optimisation
+## To Do
+- Improve RANSAC speed
+- Improve bundle adjustment speed
+- Add spherical projection for output image
+- Add gain compensation
+- Add blending 

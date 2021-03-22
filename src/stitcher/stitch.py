@@ -88,6 +88,7 @@ class Stitch:
       dst = cv.add(final_img_bg, res_img_fg)
       final_img[0:rows,0:cols] = dst
 
+    final_img[np.where((final_img==[0,0,0]).all(axis=2))] = [255,255,255]
     self._stitched_img = final_img
 
 
